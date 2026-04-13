@@ -34,3 +34,4 @@ export interface ResultsResponse {
 }
 
 export type AppView = 'upload' | 'preview' | 'quiz' | 'results';
+export type QuizMode = 'voice' | 'flashcard';

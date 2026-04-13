@@ -24,4 +24,19 @@ router.get('/session/:sessionId', (req, res, next) => {
   }
 });
 
+// Used by flashcard mode: reveal the correct answer for the current question
+router.get('/answer/:sessionId', (req, res, next) => {
+  try {
+    const session = getSession(req.params.sessionId);
+    const current = getCurrentQuestion(session);
+    if (!current) {
+      res.status(404).json({ error: 'No active question' });
+      return;
+    }
+    res.json({ correctAnswer: session.pairs[session.currentIndex].answer });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export { router as quizRouter };

@@ -3,6 +3,7 @@ import { useQuizStore } from '../store/quizStore';
 import { startQuizSession } from '../api/quizApi';
 import { translations } from '../i18n';
 import type { QAPair } from '../types';
+import type { QuizMode } from '../types';
 
 const PAGE_SIZE = 10;
 
@@ -116,7 +117,7 @@ function SearchDialog({ pairs, selected, onToggle, onClose, lang }: SearchDialog
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function PreviewPairs() {
-  const { pairs, setView, setSession, setCurrentQuestion, language } = useQuizStore();
+  const { pairs, setView, setSession, setCurrentQuestion, language, quizMode, setQuizMode } = useQuizStore();
   const tr = translations[language];
 
   // Removed pairs (bad AI extractions) — by original document index
@@ -383,6 +384,24 @@ export function PreviewPairs() {
               </button>
             </div>
           )}
+
+          {/* Mode selector */}
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-xs text-gray-500 font-medium">{tr.quizModeLabel}:</span>
+            {(['voice', 'flashcard'] as QuizMode[]).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setQuizMode(mode)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  quizMode === mode
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                {mode === 'voice' ? tr.voiceMode : tr.flashcardMode}
+              </button>
+            ))}
+          </div>
 
           {startError && (
             <p className="text-red-500 text-sm mb-2 text-center">{startError}</p>

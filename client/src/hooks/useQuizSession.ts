@@ -9,17 +9,13 @@ export function useQuizSession() {
   const [evalError, setEvalError] = useState<string | null>(null);
 
   const evaluate = useCallback(
-    async (userAnswer: string) => {
+    async (userAnswer: string, selfAssess?: boolean) => {
       if (!sessionId || currentQuestion === null) return;
       setIsEvaluating(true);
       setEvalError(null);
 
       try {
-        const result = await submitAnswer(sessionId, currentIndex, userAnswer);
-        // Only store the grading result — do NOT advance currentQuestion here.
-        // QuizView.handleNext is the single place that clears the evaluation
-        // and moves to the next question so the feedback page is never
-        // shown simultaneously with the next question's text.
+        const result = await submitAnswer(sessionId, currentIndex, userAnswer, selfAssess);
         setEvaluation(result);
       } catch (err) {
         setEvalError((err as Error).message);

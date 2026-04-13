@@ -1,11 +1,12 @@
 import { create } from 'zustand';
-import type { QAPair, EvaluateResponse, AppView } from '../types';
+import type { QAPair, EvaluateResponse, AppView, QuizMode } from '../types';
 import type { Lang } from '../i18n';
 import { getLangCookie, setLangCookie } from '../lib/cookie';
 
 interface QuizState {
   view: AppView;
   language: Lang;
+  quizMode: QuizMode;
   sessionId: string | null;
   pairs: QAPair[];
   currentIndex: number;
@@ -15,6 +16,7 @@ interface QuizState {
 
   setView: (view: AppView) => void;
   setLanguage: (lang: Lang) => void;
+  setQuizMode: (mode: QuizMode) => void;
   setPairs: (pairs: QAPair[]) => void;
   setSession: (sessionId: string, pairs: QAPair[], totalCount: number) => void;
   setCurrentQuestion: (index: number, question: string, total: number) => void;
@@ -24,7 +26,8 @@ interface QuizState {
 
 export const useQuizStore = create<QuizState>((set) => ({
   view: 'upload',
-  language: getLangCookie(), // initialise from cookie on first load
+  language: getLangCookie(),
+  quizMode: 'voice',
   sessionId: null,
   pairs: [],
   currentIndex: 0,
@@ -38,6 +41,8 @@ export const useQuizStore = create<QuizState>((set) => ({
     setLangCookie(language);
     set({ language });
   },
+
+  setQuizMode: (quizMode) => set({ quizMode }),
 
   setPairs: (pairs) => set({ pairs }),
 
@@ -53,6 +58,7 @@ export const useQuizStore = create<QuizState>((set) => ({
     set((s) => ({
       view: 'upload',
       language: s.language,
+      quizMode: s.quizMode, // preserve mode across resets
       sessionId: null,
       pairs: [],
       currentIndex: 0,

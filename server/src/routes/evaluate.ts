@@ -9,6 +9,8 @@ const BodySchema = z.object({
   sessionId: z.string(),
   questionIndex: z.number().int().min(0),
   userAnswer: z.string(),
+  // Flashcard mode: user self-assesses instead of AI grading
+  selfAssess: z.boolean().optional(),
 });
 
 router.post('/', async (req, res, next) => {
@@ -19,7 +21,7 @@ router.post('/', async (req, res, next) => {
       return;
     }
 
-    const { sessionId, questionIndex, userAnswer } = parsed.data;
+    const { sessionId, questionIndex, userAnswer, selfAssess } = parsed.data;
     const session = getSession(sessionId);
     const current = getCurrentQuestion(session);
 
@@ -29,7 +31,15 @@ router.post('/', async (req, res, next) => {
     }
 
     const correctAnswer = session.pairs[questionIndex].answer;
-    const result = await evaluateAnswer(current.question, correctAnswer, userAnswer);
+
+    let result: { passed: boolean; missingConcepts: string[]; feedback: string };
+
+    if (selfAssess !== undefined) {
+      // Flashcard mode — user already saw the answer and self-assessed
+      result = { passed: selfAssess, missingConcepts: [], feedback: '' };
+    } else {
+      result = await evaluateAnswer(current.question, correctAnswer, userAnswer);
+    }
 
     recordAnswer(session, userAnswer, result.passed, result.missingConcepts, result.feedback);
 
@@ -40,9 +50,7 @@ router.post('/', async (req, res, next) => {
       correctAnswer,
       missingConcepts: result.missingConcepts,
       feedback: result.feedback,
-      next: next
-        ? { questionIndex: next.index, question: next.question }
-        : null,
+      next: next ? { questionIndex: next.index, question: next.question } : null,
     });
   } catch (err) {
     next(err);

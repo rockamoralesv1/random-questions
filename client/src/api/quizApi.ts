@@ -67,14 +67,22 @@ export async function submitAnswer(
   sessionId: string,
   questionIndex: number,
   userAnswer: string,
+  selfAssess?: boolean,
 ): Promise<EvaluateResponse> {
   const res = await fetch('/api/evaluate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessionId, questionIndex, userAnswer }),
+    body: JSON.stringify({ sessionId, questionIndex, userAnswer, selfAssess }),
   });
   if (!res.ok) throw new Error('Evaluation failed');
   return res.json();
+}
+
+export async function getCorrectAnswer(sessionId: string): Promise<string> {
+  const res = await fetch(`/api/quiz/answer/${sessionId}`);
+  if (!res.ok) throw new Error('Failed to get answer');
+  const data = await res.json();
+  return data.correctAnswer as string;
 }
 
 export async function fetchResults(sessionId: string): Promise<ResultsResponse> {
