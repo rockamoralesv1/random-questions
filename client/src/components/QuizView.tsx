@@ -30,7 +30,8 @@ export function QuizView() {
     if (stt.state !== 'result') return;
     tts.stop();
     await evaluate(stt.finalTranscript);
-    stt.reset();
+    // Do NOT reset STT here — finalTranscript must stay populated while
+    // AnswerFeedback is visible. handleNext resets it when advancing.
   };
 
   const handleNext = () => {
