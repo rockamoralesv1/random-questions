@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { extractTextFromPDF } from '../services/pdfService';
 import { hashBuffer, getCachedOrExtract } from '../services/extractionCache';
+import { createJob, resolveJob, failJob, getJob } from '../services/jobService';
 import { getProviderWithFallback } from '../ai';
 
 const router = Router();
@@ -18,6 +19,29 @@ const upload = multer({
   },
 });
 
+// Runs in the background — not awaited by the HTTP handler
+async function runExtraction(buffer: Buffer, hash: string, jobId: string) {
+  try {
+    const { pairs } = await getCachedOrExtract(hash, async () => {
+      const rawText = await extractTextFromPDF(buffer);
+      const provider = getProviderWithFallback();
+      return provider.extraction.extractQAPairs(rawText);
+    });
+
+    if (pairs.length === 0) {
+      failJob(jobId, 'No question-answer pairs could be extracted from this PDF.');
+      return;
+    }
+
+    resolveJob(jobId, hash, pairs);
+  } catch (err) {
+    failJob(jobId, (err as Error).message ?? 'Extraction failed');
+  }
+}
+
+// POST /api/upload
+// Responds immediately with a jobId. Extraction runs in the background.
+// If the file was already extracted (server cache hit), returns pairs directly.
 router.post('/', upload.single('file'), async (req, res, next) => {
   try {
     if (!req.file) {
@@ -27,28 +51,37 @@ router.post('/', upload.single('file'), async (req, res, next) => {
 
     const hash = hashBuffer(req.file.buffer);
 
-    const { pairs, fromCache } = await getCachedOrExtract(hash, async () => {
-      const rawText = await extractTextFromPDF(req.file!.buffer);
-      const provider = getProviderWithFallback();
-      return provider.extraction.extractQAPairs(rawText);
-    });
+    // Fast path: server already extracted this file — return immediately
+    const cached = await getCachedOrExtract(hash, async () => {
+      throw new Error('NOT_CACHED');
+    }).catch((err: Error) => (err.message === 'NOT_CACHED' ? null : Promise.reject(err)));
 
-    if (pairs.length === 0) {
-      res.status(422).json({
-        error: 'No question-answer pairs could be extracted from this PDF.',
-      });
+    if (cached) {
+      res.setHeader('X-Cache', 'HIT');
+      res.json({ hash, pairs: cached.pairs });
       return;
     }
 
-    if (fromCache) {
-      res.setHeader('X-Cache', 'HIT');
-    }
+    // Slow path: start async extraction, return a job ID right away
+    const jobId = createJob();
+    res.json({ jobId });
 
-    // Return hash so the client can use it as a localStorage key
-    res.json({ hash, pairs });
+    // Fire-and-forget — Heroku's 30s timeout no longer applies
+    runExtraction(req.file.buffer, hash, jobId);
   } catch (err) {
     next(err);
   }
+});
+
+// GET /api/upload/status/:jobId
+// Client polls this until status is 'done' or 'error'.
+router.get('/status/:jobId', (req, res) => {
+  const job = getJob(req.params.jobId);
+  if (!job) {
+    res.status(404).json({ error: 'Job not found or expired' });
+    return;
+  }
+  res.json(job);
 });
 
 export { router as uploadRouter };

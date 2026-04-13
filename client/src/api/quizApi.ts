@@ -5,7 +5,9 @@ import type {
   QAPair,
 } from '../types';
 
-export async function uploadPDF(file: File): Promise<{ hash: string; pairs: QAPair[] }> {
+export async function uploadPDF(
+  file: File,
+): Promise<{ hash: string; pairs: QAPair[] } | { jobId: string }> {
   const form = new FormData();
   form.append('file', file);
   const res = await fetch('/api/upload', { method: 'POST', body: form });
@@ -14,6 +16,33 @@ export async function uploadPDF(file: File): Promise<{ hash: string; pairs: QAPa
     throw new Error(err.error ?? 'Upload failed');
   }
   return res.json();
+}
+
+export async function pollUploadJob(
+  jobId: string,
+  onProgress?: (attempt: number) => void,
+): Promise<{ hash: string; pairs: QAPair[] }> {
+  const INTERVAL_MS = 2000;
+  const MAX_ATTEMPTS = 120; // 4 minutes max
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    await new Promise((r) => setTimeout(r, INTERVAL_MS));
+    onProgress?.(attempt);
+
+    const res = await fetch(`/api/upload/status/${jobId}`);
+    if (!res.ok) throw new Error('Job status check failed');
+
+    const data = (await res.json()) as
+      | { status: 'processing' }
+      | { status: 'done'; hash: string; pairs: QAPair[] }
+      | { status: 'error'; message: string };
+
+    if (data.status === 'done') return { hash: data.hash, pairs: data.pairs };
+    if (data.status === 'error') throw new Error(data.message);
+    // status === 'processing' → keep polling
+  }
+
+  throw new Error('Extraction timed out. Please try a smaller PDF.');
 }
 
 export async function startQuizSession(

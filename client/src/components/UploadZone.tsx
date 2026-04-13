@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { uploadPDF } from '../api/quizApi';
+import { uploadPDF, pollUploadJob } from '../api/quizApi';
 import { useQuizStore } from '../store/quizStore';
 import { translations } from '../i18n';
 import {
@@ -17,6 +17,7 @@ import type { QAPair } from '../types';
 export function UploadZone() {
   const { setPairs, setView, language } = useQuizStore();
   const [isUploading, setIsUploading] = useState(false);
+  const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [recent, setRecent] = useState<SavedDocument[]>([]);
   const tr = translations[language];
@@ -36,9 +37,10 @@ export function UploadZone() {
   const handleFile = useCallback(
     async (file: File) => {
       setError(null);
+      setStatusMsg(null);
 
       // 1. Compute hash client-side — check localStorage first
-      let hash: string;
+      let hash = '';
       try {
         hash = await computeFileHash(file);
         const cached = getDocumentByHash(hash);
@@ -50,28 +52,42 @@ export function UploadZone() {
         hash = '';
       }
 
-      // 2. Upload to server (server also has an in-memory extraction cache)
       setIsUploading(true);
+      setStatusMsg(tr.extracting);
+
       try {
-        const data = await uploadPDF(file);
+        const result = await uploadPDF(file);
 
-        // 3. Persist to localStorage for future loads
-        saveDocument({
-          hash: data.hash || hash,
-          fileName: file.name,
-          savedAt: Date.now(),
-          pairs: data.pairs,
+        // Fast path: server cache hit — pairs returned immediately
+        if ('pairs' in result) {
+          saveDocument({ hash: result.hash || hash, fileName: file.name, savedAt: Date.now(), pairs: result.pairs });
+          setRecent(getSavedDocuments());
+          loadPairs(result.pairs);
+          return;
+        }
+
+        // Slow path: extraction is running in the background — poll for result
+        const { jobId } = result;
+        const pollResult = await pollUploadJob(jobId, (attempt) => {
+          const seconds = attempt * 2;
+          setStatusMsg(
+            language === 'es'
+              ? `Extrayendo preguntas… ${seconds}s`
+              : `Extracting questions… ${seconds}s`,
+          );
         });
-        setRecent(getSavedDocuments());
 
-        loadPairs(data.pairs);
+        saveDocument({ hash: pollResult.hash || hash, fileName: file.name, savedAt: Date.now(), pairs: pollResult.pairs });
+        setRecent(getSavedDocuments());
+        loadPairs(pollResult.pairs);
       } catch (err) {
         setError((err as Error).message);
       } finally {
         setIsUploading(false);
+        setStatusMsg(null);
       }
     },
-    [loadPairs],
+    [loadPairs, language, tr.extracting],
   );
 
   const handleDelete = (hash: string, e: React.MouseEvent) => {
@@ -93,7 +109,6 @@ export function UploadZone() {
       <div className="w-full max-w-lg">
         <p className="text-center text-gray-500 mb-6">{tr.uploadSubtitle}</p>
 
-        {/* Drop zone */}
         <div
           {...getRootProps()}
           className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors ${
@@ -106,7 +121,7 @@ export function UploadZone() {
           {isUploading ? (
             <div className="flex flex-col items-center gap-3">
               <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-              <p className="text-gray-600">{tr.extracting}</p>
+              <p className="text-gray-600">{statusMsg ?? tr.extracting}</p>
             </div>
           ) : (
             <div className="flex flex-col items-center gap-3">
@@ -125,7 +140,6 @@ export function UploadZone() {
           </div>
         )}
 
-        {/* Recent documents */}
         {recent.length > 0 && (
           <div className="mt-8">
             <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
@@ -139,11 +153,8 @@ export function UploadZone() {
                   className="flex items-center gap-3 bg-white rounded-lg border border-gray-200 px-4 py-3 cursor-pointer hover:border-blue-300 hover:bg-blue-50 transition-colors group"
                 >
                   <span className="text-2xl shrink-0">📄</span>
-
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800 truncate">
-                      {doc.fileName}
-                    </p>
+                    <p className="text-sm font-medium text-gray-800 truncate">{doc.fileName}</p>
                     <p className="text-xs text-gray-400 mt-0.5">
                       {doc.pairs.length}{' '}
                       {language === 'es' ? 'preguntas' : 'questions'}
@@ -151,7 +162,6 @@ export function UploadZone() {
                       {formatRelativeTime(doc.savedAt, language)}
                     </p>
                   </div>
-
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="text-xs text-blue-600 font-medium opacity-0 group-hover:opacity-100 transition-opacity">
                       {language === 'es' ? 'Cargar' : 'Load'}
