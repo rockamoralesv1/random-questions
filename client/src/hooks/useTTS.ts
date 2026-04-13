@@ -120,7 +120,7 @@ export function useTTS(lang: Lang = 'en'): UseTTSReturn {
         response = await fetch('/api/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text }),
+          body: JSON.stringify({ text, language: lang }),
         });
       } catch (err) {
         const msg = `TTS network error: ${(err as Error).message}`;

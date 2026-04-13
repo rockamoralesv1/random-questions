@@ -5,7 +5,7 @@ import { STT_LOCALE, type Lang } from '../i18n';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnySpeechRecognition = any;
 
-export type STTState = 'idle' | 'listening' | 'processing' | 'result' | 'error';
+export type STTState = 'idle' | 'connecting' | 'listening' | 'processing' | 'result' | 'error';
 
 export interface UseSpeechRecognitionReturn {
   state: STTState;
@@ -277,8 +277,9 @@ export function useSpeechRecognition(lang: Lang = 'en'): UseSpeechRecognitionRet
   }, []);
 
   const startListening = useCallback(async () => {
-    if (state === 'listening' || state === 'processing') return;
+    if (state === 'listening' || state === 'connecting' || state === 'processing') return;
     cleanup();
+    setState('connecting'); // immediate feedback before onstart fires
 
     if (tier === 'browser') {
       try {

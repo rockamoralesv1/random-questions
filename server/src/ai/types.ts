@@ -15,7 +15,7 @@ export interface AnswerGradingCapability {
 }
 
 export interface TTSCapability {
-  synthesize(text: string): Promise<NodeJS.ReadableStream>;
+  synthesize(text: string, lang?: string): Promise<NodeJS.ReadableStream>;
 }
 
 export interface STTCapability {

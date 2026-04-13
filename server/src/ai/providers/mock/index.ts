@@ -28,7 +28,7 @@ const mockGrading: AnswerGradingCapability = {
 };
 
 const mockTTS: TTSCapability = {
-  async synthesize(_text) {
+  async synthesize(_text, _lang?) {
     // Minimal valid MP3 frame so the client audio element does not error
     const minimalMp3 = Buffer.from([0xff, 0xfb, 0x90, 0x00, 0x00, 0x00, 0x00, 0x00]);
     return Readable.from([minimalMp3]);

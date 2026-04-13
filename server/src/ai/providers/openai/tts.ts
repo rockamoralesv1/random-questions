@@ -15,7 +15,7 @@ const VOICE = (process.env.OPENAI_TTS_VOICE ?? 'nova') as
   | 'shimmer';
 
 export class OpenAITTS implements TTSCapability {
-  async synthesize(text: string): Promise<NodeJS.ReadableStream> {
+  async synthesize(text: string, _lang?: string): Promise<NodeJS.ReadableStream> {
     const client = getOpenAIClient();
     const response = await client.audio.speech.create({
       model: MODEL,

@@ -21,18 +21,22 @@ function getClient(): ElevenLabsClient {
 }
 
 export class ElevenLabsTTS implements TTSCapability {
-  async synthesize(text: string): Promise<NodeJS.ReadableStream> {
+  async synthesize(text: string, lang = 'en'): Promise<NodeJS.ReadableStream> {
     const apiKeyPresent = !!process.env.ELEVENLABS_API_KEY;
-    console.log(`[elevenlabs] synthesize  model=${MODEL_ID}  voice=${VOICE_ID}  apiKey=${apiKeyPresent ? 'set' : 'MISSING'}`);
+    console.log(`[elevenlabs] synthesize  model=${MODEL_ID}  voice=${VOICE_ID}  lang=${lang}  apiKey=${apiKeyPresent ? 'set' : 'MISSING'}`);
 
     if (!apiKeyPresent) {
       throw new Error('ELEVENLABS_API_KEY is not set. Add it to your .env file.');
     }
 
+    // Map app language code to BCP-47 for ElevenLabs language enforcement
+    const languageCode = lang === 'es' ? 'es' : 'en';
+
     try {
       const audioStream = await getClient().textToSpeech.convertAsStream(VOICE_ID, {
         text,
         model_id: MODEL_ID,
+        language_code: languageCode,
         output_format: 'mp3_44100_128',
         voice_settings: {
           stability: 0.55,

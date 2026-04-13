@@ -7,6 +7,7 @@ const router = Router();
 
 const BodySchema = z.object({
   text: z.string().min(1).max(4096),
+  language: z.string().optional(),
 });
 
 function getTTSProvider() {
@@ -41,7 +42,7 @@ router.post(
 
     try {
       const tts = requireCapability(provider.tts, provider.name, 'tts');
-      const audioStream = await tts.synthesize(parsed.data.text);
+      const audioStream = await tts.synthesize(parsed.data.text, parsed.data.language);
 
       console.log(`[tts] stream ready  provider=${provider.name}`);
       res.setHeader('Content-Type', 'audio/mpeg');

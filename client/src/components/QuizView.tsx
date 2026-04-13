@@ -83,9 +83,15 @@ export function QuizView() {
                 state={stt.state}
                 onStart={stt.startListening}
                 onStop={stt.stopListening}
+                lang={language}
               />
 
-              <div className="min-h-[2.5rem] text-center">
+              <div className="min-h-[2.5rem] text-center px-2">
+                {stt.state === 'listening' && !stt.interimTranscript && (
+                  <p className="text-gray-300 text-sm italic">
+                    {language === 'es' ? 'Habla ahora…' : 'Speak now…'}
+                  </p>
+                )}
                 {stt.state === 'listening' && stt.interimTranscript && (
                   <p className="text-gray-400 italic text-sm">{stt.interimTranscript}</p>
                 )}
