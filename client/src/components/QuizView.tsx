@@ -30,16 +30,16 @@ export function QuizView() {
 
   const spokenQuestion = useRef<string | null>(null);
 
-  // Speak question when it changes
+  // Speak question when it changes (voice mode only)
   useEffect(() => {
     if (currentQuestion && currentQuestion !== spokenQuestion.current) {
       spokenQuestion.current = currentQuestion;
-      tts.speak(currentQuestion);
+      if (quizMode === 'voice') tts.speak(currentQuestion);
     }
     // Reset flashcard reveal on new question
     setRevealedAnswer(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentQuestion]);
+  }, [currentQuestion, quizMode]);
 
   // ── Voice mode handlers ──────────────────────────────────────────────────
 
@@ -57,7 +57,6 @@ export function QuizView() {
     try {
       const answer = await getCorrectAnswer(sessionId);
       setRevealedAnswer(answer);
-      tts.speak(answer);
     } catch {
       setRevealedAnswer('—');
     } finally {
@@ -99,14 +98,16 @@ export function QuizView() {
             <p className="text-gray-800 text-lg font-medium leading-relaxed">
               {currentQuestion}
             </p>
-            <button
-              onClick={() => currentQuestion && tts.speak(currentQuestion)}
-              disabled={tts.status === 'speaking' || tts.status === 'loading'}
-              className="shrink-0 text-gray-400 hover:text-blue-500 disabled:opacity-40 transition-colors"
-              title={tr.replayQuestion}
-            >
-              🔊
-            </button>
+            {quizMode === 'voice' && (
+              <button
+                onClick={() => currentQuestion && tts.speak(currentQuestion)}
+                disabled={tts.status === 'speaking' || tts.status === 'loading'}
+                className="shrink-0 text-gray-400 hover:text-blue-500 disabled:opacity-40 transition-colors"
+                title={tr.replayQuestion}
+              >
+                🔊
+              </button>
+            )}
           </div>
 
           {!lastEvaluation && (
