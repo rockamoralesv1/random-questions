@@ -33,5 +33,5 @@ export interface ResultsResponse {
   }>;
 }
 
-export type AppView = 'upload' | 'preview' | 'quiz' | 'results';
+export type AppView = 'upload' | 'preview' | 'quiz' | 'results' | 'stats';
 export type QuizMode = 'voice' | 'flashcard';

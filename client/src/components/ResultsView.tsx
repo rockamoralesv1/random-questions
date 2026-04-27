@@ -1,19 +1,52 @@
 import { useEffect, useState } from 'react';
 import { useQuizStore } from '../store/quizStore';
-import { fetchResults } from '../api/quizApi';
+import { fetchResults, startQuizSession } from '../api/quizApi';
+import { recordResults } from '../lib/statsStorage';
 import type { ResultsResponse } from '../types';
 import { translations } from '../i18n';
 
 export function ResultsView() {
-  const { sessionId, reset, language } = useQuizStore();
+  const { sessionId, pairs, reset, language, setSession, setCurrentQuestion, setView } = useQuizStore();
   const [results, setResults] = useState<ResultsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  const [restarting, setRestarting] = useState(false);
   const tr = translations[language];
+
+  const handleRestartSame = async () => {
+    if (pairs.length === 0) return;
+    setRestarting(true);
+    try {
+      const session = await startQuizSession(pairs);
+      setSession(session.sessionId, pairs, session.totalCount);
+      setCurrentQuestion(session.currentIndex, session.question, session.totalCount);
+      setView('quiz');
+    } catch {
+      setRestarting(false);
+    }
+  };
+
+  const handleRetryWrong = async () => {
+    if (!results) return;
+    const failedPairs = results.details
+      .filter((d) => !d.passed)
+      .map((d) => ({ question: d.question, answer: d.correctAnswer }));
+    if (failedPairs.length === 0) return;
+    setRetrying(true);
+    try {
+      const session = await startQuizSession(failedPairs);
+      setSession(session.sessionId, failedPairs, session.totalCount);
+      setCurrentQuestion(session.currentIndex, session.question, session.totalCount);
+      setView('quiz');
+    } catch {
+      setRetrying(false);
+    }
+  };
 
   useEffect(() => {
     if (!sessionId) return;
     fetchResults(sessionId)
-      .then(setResults)
+      .then((r) => { recordResults(r.details); setResults(r); })
       .catch((err: Error) => setError(err.message));
   }, [sessionId]);
 
@@ -85,12 +118,30 @@ export function ResultsView() {
           ))}
         </div>
 
-        <button
-          onClick={reset}
-          className="w-full py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
-        >
-          {tr.startNew}
-        </button>
+        <div className="flex flex-col gap-3">
+          {results.failed > 0 && (
+            <button
+              onClick={handleRetryWrong}
+              disabled={retrying}
+              className="w-full py-3 bg-red-600 text-white rounded-xl font-medium hover:bg-red-700 transition-colors disabled:opacity-60"
+            >
+              {retrying ? '...' : tr.retryWrong(results.failed)}
+            </button>
+          )}
+          <button
+            onClick={handleRestartSame}
+            disabled={restarting}
+            className="w-full py-3 bg-gray-700 text-white rounded-xl font-medium hover:bg-gray-800 transition-colors disabled:opacity-60"
+          >
+            {restarting ? '...' : tr.restartSame}
+          </button>
+          <button
+            onClick={reset}
+            className="w-full py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
+          >
+            {tr.startNew}
+          </button>
+        </div>
       </div>
     </div>
   );

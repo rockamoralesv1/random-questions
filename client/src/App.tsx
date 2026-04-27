@@ -4,6 +4,7 @@ import { UploadZone } from './components/UploadZone';
 import { PreviewPairs } from './components/PreviewPairs';
 import { QuizView } from './components/QuizView';
 import { ResultsView } from './components/ResultsView';
+import { StatsView } from './components/StatsView';
 
 export default function App() {
   const view = useQuizStore((s) => s.view);
@@ -16,6 +17,7 @@ export default function App() {
         {view === 'preview' && <PreviewPairs />}
         {view === 'quiz' && <QuizView />}
         {view === 'results' && <ResultsView />}
+        {view === 'stats' && <StatsView />}
       </main>
     </div>
   );

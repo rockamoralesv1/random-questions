@@ -3,7 +3,7 @@ import { translations } from '../i18n';
 import { LanguageToggle } from './LanguageToggle';
 
 export function Header() {
-  const { language, view, reset } = useQuizStore();
+  const { language, view, reset, setView } = useQuizStore();
   const tr = translations[language];
 
   return (
@@ -24,6 +24,19 @@ export function Header() {
               className="text-sm text-gray-400 hover:text-red-500 transition-colors"
             >
               ✕
+            </button>
+          )}
+          {view !== 'quiz' && (
+            <button
+              onClick={() => setView('stats')}
+              className={`text-sm font-medium transition-colors ${
+                view === 'stats'
+                  ? 'text-blue-600'
+                  : 'text-gray-500 hover:text-blue-600'
+              }`}
+              title={tr.statsNav}
+            >
+              📊
             </button>
           )}
           <LanguageToggle />
