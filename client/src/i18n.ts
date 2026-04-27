@@ -52,6 +52,11 @@ export const translations = {
     quizModeLabel: 'Quiz mode',
     switchToWhisper: 'Switch to Whisper (server STT)',
     switchToBrowser: 'Switch to browser STT',
+    resumeTitle: 'Unfinished quiz',
+    resumeProgress: (current: number, total: number) =>
+      `Question ${current + 1} of ${total} · resume from here`,
+    resumeButton: 'Resume',
+    resumeDismiss: 'Discard',
     statsNav: 'Stats',
     statsTitle: 'Question Statistics',
     statsTracked: (total: number, wrong: number) =>
@@ -109,6 +114,11 @@ export const translations = {
     quizModeLabel: 'Modo de quiz',
     switchToWhisper: 'Cambiar a Whisper (STT servidor)',
     switchToBrowser: 'Cambiar a STT navegador',
+    resumeTitle: 'Quiz sin terminar',
+    resumeProgress: (current: number, total: number) =>
+      `Pregunta ${current + 1} de ${total} · continuar desde aquí`,
+    resumeButton: 'Continuar',
+    resumeDismiss: 'Descartar',
     statsNav: 'Estadísticas',
     statsTitle: 'Estadísticas de Preguntas',
     statsTracked: (total: number, wrong: number) =>

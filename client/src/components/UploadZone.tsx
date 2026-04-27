@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { uploadPDF, pollUploadJob } from '../api/quizApi';
+import { uploadPDF, pollUploadJob, fetchSession, startQuizSession } from '../api/quizApi';
 import { useQuizStore } from '../store/quizStore';
 import { translations } from '../i18n';
 import {
@@ -12,19 +12,69 @@ import {
   formatRelativeTime,
   type SavedDocument,
 } from '../lib/storage';
+import {
+  getDraftSession,
+  clearDraftSession,
+  type DraftSession,
+} from '../lib/draftSession';
 import type { QAPair } from '../types';
 
 export function UploadZone() {
-  const { setPairs, setView, language } = useQuizStore();
+  const { setPairs, setView, language, setSession, setCurrentQuestion, setQuizMode } = useQuizStore();
   const [isUploading, setIsUploading] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [recent, setRecent] = useState<SavedDocument[]>([]);
+  const [draft, setDraft] = useState<DraftSession | null>(null);
+  const [isResuming, setIsResuming] = useState(false);
   const tr = translations[language];
 
   useEffect(() => {
     setRecent(getSavedDocuments());
+    setDraft(getDraftSession());
   }, []);
+
+  const handleResume = useCallback(async () => {
+    if (!draft) return;
+    setIsResuming(true);
+    try {
+      // Try to reattach to the existing server session
+      try {
+        const serverSession = await fetchSession(draft.sessionId);
+        if (!serverSession.done && serverSession.question && serverSession.currentIndex !== undefined) {
+          setSession(draft.sessionId, draft.pairs, serverSession.totalCount);
+          setCurrentQuestion(serverSession.currentIndex, serverSession.question, serverSession.totalCount);
+          setQuizMode(draft.quizMode);
+          setView('quiz');
+          setDraft(null);
+          return;
+        }
+      } catch {
+        // Server session expired — fall through to restart with remaining pairs
+      }
+
+      // Server session gone: start fresh with only the remaining questions
+      const remainingPairs = draft.pairs.slice(draft.currentIndex);
+      if (remainingPairs.length === 0) {
+        clearDraftSession();
+        setDraft(null);
+        return;
+      }
+      const session = await startQuizSession(remainingPairs);
+      setSession(session.sessionId, remainingPairs, session.totalCount);
+      setCurrentQuestion(session.currentIndex, session.question, session.totalCount);
+      setQuizMode(draft.quizMode);
+      setView('quiz');
+      setDraft(null);
+    } catch {
+      setIsResuming(false);
+    }
+  }, [draft, setSession, setCurrentQuestion, setQuizMode, setView]);
+
+  const handleDismissDraft = () => {
+    clearDraftSession();
+    setDraft(null);
+  };
 
   const loadPairs = useCallback(
     (pairs: QAPair[]) => {
@@ -108,6 +158,40 @@ export function UploadZone() {
     <div className="flex-1 flex flex-col items-center justify-start p-6 pt-8 overflow-y-auto">
       <div className="w-full max-w-lg">
         <p className="text-center text-gray-500 mb-6">{tr.uploadSubtitle}</p>
+
+        {/* Resume card */}
+        {draft && (
+          <div className="mb-6 bg-amber-50 border border-amber-200 rounded-xl p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <span className="text-2xl shrink-0">📋</span>
+                <div>
+                  <p className="text-sm font-semibold text-amber-800">{tr.resumeTitle}</p>
+                  <p className="text-xs text-amber-700 mt-0.5">
+                    {tr.resumeProgress(draft.currentIndex, draft.totalCount)}
+                  </p>
+                  <p className="text-xs text-amber-500 mt-0.5">
+                    {formatRelativeTime(draft.savedAt, language)}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleDismissDraft}
+                className="text-amber-400 hover:text-amber-600 transition-colors text-lg leading-none shrink-0"
+                title={tr.resumeDismiss}
+              >
+                ×
+              </button>
+            </div>
+            <button
+              onClick={handleResume}
+              disabled={isResuming}
+              className="mt-3 w-full py-2 bg-amber-500 text-white rounded-lg font-medium hover:bg-amber-600 transition-colors disabled:opacity-60 text-sm"
+            >
+              {isResuming ? '...' : tr.resumeButton}
+            </button>
+          </div>
+        )}
 
         <div
           {...getRootProps()}

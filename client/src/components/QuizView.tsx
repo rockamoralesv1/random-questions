@@ -9,11 +9,12 @@ import { AnswerFeedback } from './AnswerFeedback';
 import { translations } from '../i18n';
 import { getCorrectAnswer } from '../api/quizApi';
 import { detectSTTTier } from '../lib/stt/detectSTTTier';
+import { saveDraftSession } from '../lib/draftSession';
 import type { STTTier } from '../lib/stt/detectSTTTier';
 
 export function QuizView() {
   const {
-    currentIndex, totalCount, currentQuestion, lastEvaluation,
+    pairs, currentIndex, totalCount, currentQuestion, lastEvaluation,
     setCurrentQuestion, setEvaluation, language, quizMode, sessionId,
   } = useQuizStore();
 
@@ -29,6 +30,22 @@ export function QuizView() {
   const [isRevealing, setIsRevealing] = useState(false);
 
   const spokenQuestion = useRef<string | null>(null);
+
+  // Persist quiz state to localStorage after every question advance
+  useEffect(() => {
+    if (!sessionId || currentQuestion === null) return;
+    saveDraftSession({
+      sessionId,
+      pairs,
+      currentIndex,
+      totalCount,
+      currentQuestion,
+      quizMode,
+      language,
+      savedAt: Date.now(),
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentIndex, currentQuestion]);
 
   // Speak question when it changes (voice mode only)
   useEffect(() => {

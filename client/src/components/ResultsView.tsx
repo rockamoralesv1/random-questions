@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQuizStore } from '../store/quizStore';
 import { fetchResults, startQuizSession } from '../api/quizApi';
 import { recordResults } from '../lib/statsStorage';
+import { clearDraftSession } from '../lib/draftSession';
 import type { ResultsResponse } from '../types';
 import { translations } from '../i18n';
 
@@ -46,7 +47,7 @@ export function ResultsView() {
   useEffect(() => {
     if (!sessionId) return;
     fetchResults(sessionId)
-      .then((r) => { recordResults(r.details); setResults(r); })
+      .then((r) => { recordResults(r.details); clearDraftSession(); setResults(r); })
       .catch((err: Error) => setError(err.message));
   }, [sessionId]);
 
