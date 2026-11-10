@@ -1,5 +1,5 @@
 import express from 'express';
-import cors from 'cors';
+import helmet from 'helmet';
 import path from 'path';
 import fs from 'fs';
 import { errorHandler } from './middleware/errorHandler';
@@ -21,7 +21,30 @@ const app = express();
 // (one hop) so req.ip — and therefore rate limiting — sees the real client.
 app.set('trust proxy', 1);
 
-app.use(cors());
+// No CORS middleware: the client is served from this same origin (and Vite
+// proxies /api in development), so other websites can't call the API from
+// their visitors' browsers.
+
+// Security headers. The CSP allows only this origin, plus blob:/data: audio
+// for server TTS playback.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:', 'blob:'],
+        mediaSrc: ["'self'", 'blob:', 'data:'],
+        connectSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+      },
+    },
+  }),
+);
 app.use(express.json({ limit: '2mb' }));
 app.use('/api', apiLimit);
 

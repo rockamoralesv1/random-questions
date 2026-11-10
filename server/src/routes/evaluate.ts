@@ -9,7 +9,7 @@ const router = Router();
 const BodySchema = z.object({
   sessionId: z.string(),
   questionIndex: z.number().int().min(0),
-  userAnswer: z.string(),
+  userAnswer: z.string().max(5_000),
   // Flashcard mode: user self-assesses instead of AI grading
   selfAssess: z.boolean().optional(),
 });

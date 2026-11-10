@@ -10,8 +10,12 @@ export interface ChunkRow {
   error: string | null;
 }
 
+/** 'owner': uploaded the PDF (may re-process it); 'shared': imported it by code. */
+export type DocumentRole = 'owner' | 'shared';
+
 export interface ClientDocumentRow {
   hash: string;
+  role: DocumentRole;
   fileName: string;
   savedAt: number; // epoch ms
   totalChunks: number;
@@ -73,7 +77,9 @@ export interface Repository {
   resetFailedChunks(hash: string): Promise<number>;
   /** Hashes with chunks still pending/processing (to resume after a restart). */
   listUnfinishedHashes(): Promise<string[]>;
-  linkClient(clientId: string, hash: string, fileName: string): Promise<void>;
+  /** Adds the document to the client's list. Never downgrades an owner to shared. */
+  linkClient(clientId: string, hash: string, fileName: string, role: DocumentRole): Promise<void>;
+  getClientRole(clientId: string, hash: string): Promise<DocumentRole | null>;
   unlinkClient(clientId: string, hash: string): Promise<void>;
   listClientDocuments(clientId: string): Promise<ClientDocumentRow[]>;
 

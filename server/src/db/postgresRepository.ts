@@ -4,6 +4,7 @@ import type {
   ChunkRow,
   ChunkStatus,
   ClientDocumentRow,
+  DocumentRole,
   QuestionStatRow,
   QuizSessionRow,
   Repository,
@@ -65,6 +66,10 @@ CREATE TABLE IF NOT EXISTS client_documents (
   saved_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (client_id, hash)
 );
+
+-- Added later: who may re-process a document ('owner') vs. imported it ('shared').
+-- Rows created before this column existed are treated as owners.
+ALTER TABLE client_documents ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'owner';
 
 -- A quiz in progress or finished. pairs are stored in quiz (shuffled) order;
 -- answers grows by one element per question answered.
@@ -234,12 +239,23 @@ export class PostgresRepository implements Repository {
     return r.rows.map((row) => row.hash);
   }
 
-  async linkClient(clientId: string, hash: string, fileName: string): Promise<void> {
+  async linkClient(clientId: string, hash: string, fileName: string, role: DocumentRole): Promise<void> {
     await this.pool.query(
-      `INSERT INTO client_documents (client_id, hash, file_name) VALUES ($1, $2, $3)
-       ON CONFLICT (client_id, hash) DO UPDATE SET file_name = EXCLUDED.file_name, saved_at = now()`,
-      [clientId, hash, fileName],
+      `INSERT INTO client_documents (client_id, hash, file_name, role) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (client_id, hash) DO UPDATE SET
+         file_name = EXCLUDED.file_name,
+         saved_at = now(),
+         role = CASE WHEN client_documents.role = 'owner' THEN 'owner' ELSE EXCLUDED.role END`,
+      [clientId, hash, fileName, role],
     );
+  }
+
+  async getClientRole(clientId: string, hash: string): Promise<DocumentRole | null> {
+    const r = await this.pool.query(
+      'SELECT role FROM client_documents WHERE client_id = $1 AND hash = $2',
+      [clientId, hash],
+    );
+    return r.rows[0]?.role ?? null;
   }
 
   async unlinkClient(clientId: string, hash: string): Promise<void> {
@@ -251,7 +267,7 @@ export class PostgresRepository implements Repository {
 
   async listClientDocuments(clientId: string): Promise<ClientDocumentRow[]> {
     const r = await this.pool.query(
-      `SELECT cd.hash, cd.file_name, cd.saved_at,
+      `SELECT cd.hash, cd.role, cd.file_name, cd.saved_at,
               COUNT(c.chunk_index)::int                                   AS total_chunks,
               COUNT(*) FILTER (WHERE c.status = 'done')::int              AS done_chunks,
               COUNT(*) FILTER (WHERE c.status = 'failed')::int            AS failed_chunks,
@@ -259,12 +275,13 @@ export class PostgresRepository implements Repository {
          FROM client_documents cd
          LEFT JOIN document_chunks c ON c.hash = cd.hash
         WHERE cd.client_id = $1
-        GROUP BY cd.hash, cd.file_name, cd.saved_at
+        GROUP BY cd.hash, cd.role, cd.file_name, cd.saved_at
         ORDER BY cd.saved_at DESC`,
       [clientId],
     );
     return r.rows.map((row) => ({
       hash: row.hash,
+      role: row.role,
       fileName: row.file_name,
       savedAt: new Date(row.saved_at).getTime(),
       totalChunks: row.total_chunks,

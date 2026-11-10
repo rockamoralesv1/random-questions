@@ -1,9 +1,10 @@
-import { Router } from 'express';
+import { Router, type RequestHandler } from 'express';
 import multer from 'multer';
 import { createHash } from 'crypto';
 import { extractTextFromPDF } from '../services/pdfService';
 import {
   EXTRACTION_VERSION,
+  MAX_CHUNKS,
   chunkPdfText,
   getDocumentState,
   isExtractionRunning,
@@ -28,11 +29,21 @@ const upload = multer({
   },
 });
 
+/** multer, but malformed uploads become 400s instead of 500s. */
+const singlePdf: RequestHandler = (req, res, next) => {
+  upload.single('file')(req, res, (err?: unknown) => {
+    if (err && !(err as { status?: number }).status) {
+      return next(Object.assign(err as Error, { status: 400 }));
+    }
+    next(err);
+  });
+};
+
 // POST /api/upload
 // Saves the PDF's text as chunks and starts extracting them in the background.
 // Responds right away with the document's state; the client then polls
 // GET /api/documents/:hash. A PDF already in the database is never re-extracted.
-router.post('/', uploadLimit, requireClientId, upload.single('file'), async (req, res, next) => {
+router.post('/', uploadLimit, requireClientId, singlePdf, async (req, res, next) => {
   try {
     if (!req.file) {
       res.status(400).json({ error: 'No file provided' });
@@ -51,7 +62,16 @@ router.post('/', uploadLimit, requireClientId, upload.single('file'), async (req
         return;
       }
       const text = await extractTextFromPDF(req.file.buffer);
-      await repo.createDocument(hash, req.file.originalname, chunkPdfText(text), EXTRACTION_VERSION);
+      const chunks = chunkPdfText(text);
+      if (chunks.length > MAX_CHUNKS) {
+        res.status(413).json({
+          error:
+            `This PDF has too much text (${chunks.length} parts; the limit is ${MAX_CHUNKS}). ` +
+            'Please split it into smaller files.',
+        });
+        return;
+      }
+      await repo.createDocument(hash, req.file.originalname, chunks, EXTRACTION_VERSION);
     } else if (
       isAIEnabled() &&
       !isExtractionRunning(hash) &&
@@ -60,7 +80,7 @@ router.post('/', uploadLimit, requireClientId, upload.single('file'), async (req
       // Extracted with an older prompt (e.g. before page references): redo it.
       await repo.resetDocument(hash, EXTRACTION_VERSION);
     }
-    await repo.linkClient(res.locals.clientId, hash, req.file.originalname);
+    await repo.linkClient(res.locals.clientId, hash, req.file.originalname, 'owner');
 
     startExtraction(hash); // no-op if nothing pending or already running
     res.json(await getDocumentState(hash));

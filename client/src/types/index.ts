@@ -23,8 +23,12 @@ export interface DocumentState {
 }
 
 /** GET /api/documents — one of this browser's question banks. */
+/** 'owner': uploaded the PDF (can re-process it); 'shared': imported by code. */
+export type DocumentRole = 'owner' | 'shared';
+
 export interface ClientDocument {
   hash: string;
+  role: DocumentRole;
   fileName: string;
   savedAt: number;
   totalChunks: number;

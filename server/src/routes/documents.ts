@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type RequestHandler } from 'express';
 import { getRepository } from '../db';
 import { requireAI } from '../ai';
 import {
@@ -13,6 +13,28 @@ import { importLimit, retryLimit } from '../middleware/rateLimit';
 
 const router = Router();
 const HASH_RE = /^[a-f0-9]{64}$/;
+
+/**
+ * Only a client that uploaded the PDF may spend AI on it again (retry or
+ * re-process). Someone who imported it with a share code gets the full hash
+ * too, so the hash alone must not be enough.
+ */
+const requireOwner: RequestHandler = async (req, res, next) => {
+  try {
+    const hash = String(req.params.hash);
+    if (!HASH_RE.test(hash)) {
+      res.status(400).json({ error: 'Invalid document id' });
+      return;
+    }
+    if ((await getRepository().getClientRole(res.locals.clientId, hash)) !== 'owner') {
+      res.status(403).json({ error: 'Only the person who uploaded this PDF can re-process it.' });
+      return;
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+};
 
 // GET /api/documents — this browser's question banks, most recent first.
 router.get('/', requireClientId, async (_req, res, next) => {
@@ -45,7 +67,7 @@ router.post('/import', importLimit, requireClientId, async (req, res, next) => {
       return;
     }
     const hash = matches[0];
-    await repo.linkClient(res.locals.clientId, hash, (await repo.getDocumentName(hash)) ?? 'PDF');
+    await repo.linkClient(res.locals.clientId, hash, (await repo.getDocumentName(hash)) ?? 'PDF', 'shared');
     res.json(await getDocumentState(hash));
   } catch (err) {
     next(err);
@@ -73,7 +95,7 @@ router.get('/:hash', async (req, res, next) => {
 });
 
 // POST /api/documents/:hash/retry — re-extract only the chunks that failed.
-router.post('/:hash/retry', requireAI, retryLimit, async (req, res, next) => {
+router.post('/:hash/retry', requireAI, retryLimit, requireClientId, requireOwner, async (req, res, next) => {
   try {
     const hash = String(req.params.hash);
     if (!HASH_RE.test(hash)) {
@@ -94,7 +116,7 @@ router.post('/:hash/retry', requireAI, retryLimit, async (req, res, next) => {
 
 // POST /api/documents/:hash/reextract — throw away the extracted questions
 // and process the whole PDF again with the current extraction prompt.
-router.post('/:hash/reextract', requireAI, retryLimit, async (req, res, next) => {
+router.post('/:hash/reextract', requireAI, retryLimit, requireClientId, requireOwner, async (req, res, next) => {
   try {
     const hash = String(req.params.hash);
     if (!HASH_RE.test(hash)) {

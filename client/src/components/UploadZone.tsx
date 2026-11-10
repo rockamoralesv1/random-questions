@@ -23,7 +23,7 @@ import { getDraftSession, clearDraftSession, type DraftSession } from '../lib/dr
 import { getClientId, normalizePersonalCode, setClientId } from '../lib/clientId';
 import { pollDocument } from '../lib/documentPoller';
 import { shareCodeFor, copyToClipboard } from '../lib/shareCode';
-import type { ActiveQuiz, ClientDocument, DocumentState, QAPair } from '../types';
+import type { ActiveQuiz, ClientDocument, DocumentRole, DocumentState, QAPair } from '../types';
 
 /** Quiz to resume: saved on the server, or a legacy one from localStorage. */
 type ResumableQuiz = { kind: 'server'; quiz: ActiveQuiz } | { kind: 'local'; draft: DraftSession };
@@ -125,12 +125,12 @@ export function UploadZone() {
 
   /** Shows a server bank in the preview, polling while it is still extracting. */
   const openDocument = useCallback(
-    (state: DocumentState, fileName: string) => {
+    (state: DocumentState, fileName: string, role: DocumentRole) => {
       if (state.status === 'error' && state.pairs.length === 0) {
         setError(state.error ?? (es ? 'No se pudieron extraer preguntas.' : 'Extraction failed.'));
         return;
       }
-      applyDocumentState(state, fileName);
+      applyDocumentState(state, fileName, role);
       if (state.status === 'processing') pollDocument(state.hash, fileName);
       setView('preview');
     },
@@ -148,7 +148,7 @@ export function UploadZone() {
       setIsUploading(true);
       try {
         // Responds immediately; the preview fills in as chunks finish.
-        openDocument(await uploadPDF(file), file.name);
+        openDocument(await uploadPDF(file), file.name, 'owner');
       } catch (err) {
         setError((err as Error).message);
       } finally {
@@ -162,7 +162,7 @@ export function UploadZone() {
     setError(null);
     if (doc.kind === 'local') return loadLocalPairs(doc.pairs);
     try {
-      openDocument(await getDocument(doc.hash), doc.fileName);
+      openDocument(await getDocument(doc.hash), doc.fileName, doc.role);
     } catch (err) {
       setError((err as Error).message);
     }
@@ -195,7 +195,7 @@ export function UploadZone() {
         const state = await importDocument(input);
         setCodeInput('');
         await refreshRecent();
-        openDocument(state, '');
+        openDocument(state, '', 'shared');
       } catch (err) {
         setCodeMsg({ ok: false, text: (err as Error).message });
       }

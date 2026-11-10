@@ -7,8 +7,12 @@ export function errorHandler(
   _next: NextFunction,
 ) {
   const message = err instanceof Error ? err.message : 'Internal server error';
-  const status = (err as any).status ?? 500;
+  const status: number = (err as { status?: number })?.status ?? 500;
+  if (status >= 500) console.error('[error]', err);
   res.status(status).json({
-    error: process.env.NODE_ENV === 'production' ? 'Server error' : message,
+    // Client errors (4xx) carry messages meant for the user, e.g. "this PDF has
+    // no extractable text". Server errors may contain internals: hide them in
+    // production.
+    error: status < 500 || process.env.NODE_ENV !== 'production' ? message : 'Server error',
   });
 }

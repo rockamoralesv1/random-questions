@@ -35,5 +35,11 @@ export const retryLimit = makeRateLimit({ windowMs: HOUR, max: 20 });
 /** Share-code lookups — limited to make guessing codes impractical. */
 export const importLimit = makeRateLimit({ windowMs: 15 * MINUTE, max: 30 });
 
+/** Starting quizzes — each stores its questions in the database. */
+export const quizStartLimit = makeRateLimit({ windowMs: 10 * MINUTE, max: 30 });
+
+/** One-time import of browser stats — also writes to the database. */
+export const statsImportLimit = makeRateLimit({ windowMs: HOUR, max: 5 });
+
 /** AI grading of answers. */
 export const evaluateLimit = makeRateLimit({ windowMs: MINUTE, max: 60 });

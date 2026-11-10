@@ -3,6 +3,7 @@ import type {
   ChunkRow,
   ChunkStatus,
   ClientDocumentRow,
+  DocumentRole,
   QuestionStatRow,
   QuizSessionRow,
   Repository,
@@ -17,7 +18,7 @@ export class MemoryRepository implements Repository {
   private docs = new Map<string, ChunkRow[]>();
   private names = new Map<string, string>();
   private versions = new Map<string, number>();
-  private links = new Map<string, Map<string, { fileName: string; savedAt: number }>>();
+  private links = new Map<string, Map<string, { fileName: string; savedAt: number; role: DocumentRole }>>();
   private sessions = new Map<string, QuizSessionRow>();
   private stats = new Map<string, Map<string, QuestionStatRow>>();
 
@@ -92,10 +93,15 @@ export class MemoryRepository implements Repository {
       .map(([hash]) => hash);
   }
 
-  async linkClient(clientId: string, hash: string, fileName: string): Promise<void> {
+  async linkClient(clientId: string, hash: string, fileName: string, role: DocumentRole): Promise<void> {
     const m = this.links.get(clientId) ?? new Map();
-    m.set(hash, { fileName, savedAt: Date.now() });
+    const keep = m.get(hash)?.role === 'owner' ? 'owner' : role;
+    m.set(hash, { fileName, savedAt: Date.now(), role: keep });
     this.links.set(clientId, m);
+  }
+
+  async getClientRole(clientId: string, hash: string): Promise<DocumentRole | null> {
+    return this.links.get(clientId)?.get(hash)?.role ?? null;
   }
 
   async unlinkClient(clientId: string, hash: string): Promise<void> {
@@ -104,10 +110,11 @@ export class MemoryRepository implements Repository {
 
   async listClientDocuments(clientId: string): Promise<ClientDocumentRow[]> {
     return [...(this.links.get(clientId) ?? [])]
-      .map(([hash, { fileName, savedAt }]) => {
+      .map(([hash, { fileName, savedAt, role }]) => {
         const chunks = this.docs.get(hash) ?? [];
         return {
           hash,
+          role,
           fileName,
           savedAt,
           totalChunks: chunks.length,

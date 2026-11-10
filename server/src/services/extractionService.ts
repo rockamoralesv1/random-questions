@@ -10,6 +10,11 @@ export const CHUNK_SIZE = 15_000;
 export const CHUNK_OVERLAP = 500;
 // Parallel AI requests per document — low enough for typical rate limits.
 const CONCURRENCY = 3;
+// Cost guards. One PDF may have at most MAX_CHUNKS chunks (~900k characters,
+// a few hundred pages of text), and at most MAX_ACTIVE_DOCUMENTS PDFs are
+// extracted at once across all users; the rest wait in a queue.
+export const MAX_CHUNKS = 60;
+const MAX_ACTIVE_DOCUMENTS = 2;
 // A chunk whose output still overflows is halved and retried this many times.
 const MAX_SPLIT_DEPTH = 3;
 const MIN_SPLIT_SIZE = 2_000;
@@ -35,9 +40,12 @@ export interface DocumentState {
 
 /** Hashes whose extraction is running in this process. */
 const running = new Set<string>();
+/** Hashes waiting for a free slot, in arrival order. */
+const queued = new Set<string>();
 
+/** Running or waiting in the queue. */
 export function isExtractionRunning(hash: string): boolean {
-  return running.has(hash);
+  return running.has(hash) || queued.has(hash);
 }
 
 export function chunkPdfText(text: string): string[] {
@@ -64,7 +72,11 @@ async function extractWithSplitting(text: string, depth = 0): Promise<QAPair[]> 
  * skipped, and chunks left 'processing' by a crashed process are picked up.
  */
 export function startExtraction(hash: string): void {
-  if (running.has(hash) || !isAIEnabled()) return;
+  if (running.has(hash) || queued.has(hash) || !isAIEnabled()) return;
+  if (running.size >= MAX_ACTIVE_DOCUMENTS) {
+    queued.add(hash); // its chunks stay 'pending'; picked up when a slot frees
+    return;
+  }
   running.add(hash);
 
   void (async () => {
@@ -88,6 +100,11 @@ export function startExtraction(hash: string): void {
       console.error(`[extraction] ${hash.slice(0, 8)} aborted:`, err);
     } finally {
       running.delete(hash);
+      const next = queued.values().next();
+      if (!next.done) {
+        queued.delete(next.value);
+        startExtraction(next.value);
+      }
     }
   })();
 }
@@ -132,7 +149,7 @@ export async function getDocumentState(hash: string): Promise<DocumentState | nu
   const unfinished = chunks.length - done - failed.length;
 
   // Self-heal: unfinished chunks but nothing running here (e.g. after a restart).
-  if (unfinished > 0 && !running.has(hash)) startExtraction(hash);
+  if (unfinished > 0 && !isExtractionRunning(hash)) startExtraction(hash);
 
   const status: DocumentStatus =
     unfinished > 0 ? (isAIEnabled() ? 'processing' : 'paused') : failed.length === 0 ? 'done' : done > 0 ? 'partial' : 'error';

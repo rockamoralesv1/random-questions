@@ -48,7 +48,7 @@ export async function getDocument(hash: string): Promise<DocumentState> {
 }
 
 export async function retryDocument(hash: string): Promise<DocumentState> {
-  const res = await fetch(`/api/documents/${hash}/retry`, { method: 'POST' });
+  const res = await fetch(`/api/documents/${hash}/retry`, withClientId({ method: 'POST' }));
   return jsonOrThrow(res, 'Retry failed');
 }
 
@@ -102,7 +102,8 @@ export async function discardQuiz(sessionId: string): Promise<void> {
 }
 
 export async function reextractDocument(hash: string): Promise<DocumentState> {
-  return jsonOrThrow(await fetch(`/api/documents/${hash}/reextract`, { method: 'POST' }), 'Could not re-process');
+  const res = await fetch(`/api/documents/${hash}/reextract`, withClientId({ method: 'POST' }));
+  return jsonOrThrow(res, 'Could not re-process');
 }
 
 export async function fetchStats(): Promise<QuestionStat[]> {

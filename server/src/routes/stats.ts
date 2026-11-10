@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { getRepository } from '../db';
 import { requireClientId } from '../middleware/clientId';
+import { statsImportLimit } from '../middleware/rateLimit';
 
 const router = Router();
 router.use(requireClientId);
@@ -35,18 +36,18 @@ const ImportSchema = z.object({
   stats: z
     .array(
       z.object({
-        question: z.string().min(1).max(5000),
-        correctAnswer: z.string().max(20000),
+        question: z.string().min(1).max(2_000),
+        correctAnswer: z.string().max(10_000),
         source: z.string().max(500).nullish(),
         attempts: z.number().int().min(0).max(100000),
         fails: z.number().int().min(0).max(100000),
         lastSeen: z.number().min(0),
       }),
     )
-    .max(5000),
+    .max(2_000),
 });
 
-router.post('/import', async (req, res, next) => {
+router.post('/import', statsImportLimit, async (req, res, next) => {
   try {
     const parsed = ImportSchema.safeParse(req.body);
     if (!parsed.success) {

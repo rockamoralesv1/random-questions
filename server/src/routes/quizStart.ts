@@ -1,25 +1,28 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { createSession, getCurrentQuestion } from '../services/quizService';
-import { optionalClientId } from '../middleware/clientId';
+import { requireClientId } from '../middleware/clientId';
+import { quizStartLimit } from '../middleware/rateLimit';
 
 const router = Router();
 
 const BodySchema = z.object({
   pairs: z
     .array(
+      // Bounded so a request can't store arbitrarily large data.
       z.object({
-        question: z.string().min(1),
-        answer: z.string().min(1),
-        topic: z.string().nullish(),
-        source: z.string().nullish(),
+        question: z.string().min(1).max(2_000),
+        answer: z.string().min(1).max(10_000),
+        topic: z.string().max(500).nullish(),
+        source: z.string().max(500).nullish(),
       }),
     )
-    .min(1),
+    .min(1)
+    .max(2_000),
   quizMode: z.enum(['voice', 'flashcard']).optional(),
 });
 
-router.post('/', optionalClientId, async (req, res, next) => {
+router.post('/', quizStartLimit, requireClientId, async (req, res, next) => {
   try {
     const parsed = BodySchema.safeParse(req.body);
     if (!parsed.success) {

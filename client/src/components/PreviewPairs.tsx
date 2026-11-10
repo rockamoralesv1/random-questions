@@ -382,13 +382,13 @@ export function PreviewPairs() {
                   : `${doc.failedChunks} of ${doc.totalChunks} parts could not be read.`}
                 {doc.error && <span className="block text-xs text-red-500 truncate">{doc.error}</span>}
               </span>
-              <button
+              {doc.role === 'owner' && <button
                 onClick={() => void handleRetry()}
                 disabled={isRetrying}
                 className="px-3 py-1 rounded-lg bg-red-600 text-white text-xs font-medium hover:bg-red-700 disabled:opacity-60 shrink-0"
               >
                 {isRetrying ? '…' : es ? 'Reintentar' : 'Retry'}
-              </button>
+              </button>}
             </div>
           )}
 
@@ -399,7 +399,7 @@ export function PreviewPairs() {
               <button onClick={() => void handleCopyShare()} className="text-blue-600 hover:underline">
                 {copied ? (es ? '¡Copiado!' : 'Copied!') : es ? 'Copiar' : 'Copy'}
               </button>
-              {doc.status !== 'processing' && (
+              {doc.status !== 'processing' && doc.role === 'owner' && (
                 <>
                   {' · '}
                   <button
