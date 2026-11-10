@@ -33,7 +33,8 @@ router.get('/answer/:sessionId', (req, res, next) => {
       res.status(404).json({ error: 'No active question' });
       return;
     }
-    res.json({ correctAnswer: session.pairs[session.currentIndex].answer });
+    const pair = session.pairs[session.currentIndex];
+    res.json({ correctAnswer: pair.answer, source: pair.source ?? null });
   } catch (err) {
     next(err);
   }

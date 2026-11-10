@@ -5,6 +5,7 @@ import type { ChunkRow, ChunkStatus, ClientDocumentRow, Repository } from './rep
 export class MemoryRepository implements Repository {
   private docs = new Map<string, ChunkRow[]>();
   private names = new Map<string, string>();
+  private versions = new Map<string, number>();
   private links = new Map<string, Map<string, { fileName: string; savedAt: number }>>();
 
   async init(): Promise<void> {}
@@ -13,13 +14,27 @@ export class MemoryRepository implements Repository {
     return this.docs.has(hash);
   }
 
-  async createDocument(hash: string, fileName: string, chunkTexts: string[]): Promise<void> {
+  async createDocument(hash: string, fileName: string, chunkTexts: string[], version: number): Promise<void> {
     if (this.docs.has(hash)) return;
+    this.versions.set(hash, version);
     this.names.set(hash, fileName);
     this.docs.set(
       hash,
       chunkTexts.map((text, index) => ({ index, text, status: 'pending', pairs: null, error: null })),
     );
+  }
+
+  async getExtractionVersion(hash: string): Promise<number | null> {
+    return this.versions.get(hash) ?? null;
+  }
+
+  async resetDocument(hash: string, version: number): Promise<void> {
+    for (const c of this.docs.get(hash) ?? []) {
+      c.status = 'pending';
+      c.pairs = null;
+      c.error = null;
+    }
+    this.versions.set(hash, version);
   }
 
   async findHashesByPrefix(prefix: string, limit: number): Promise<string[]> {

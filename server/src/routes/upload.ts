@@ -2,7 +2,13 @@ import { Router } from 'express';
 import multer from 'multer';
 import { createHash } from 'crypto';
 import { extractTextFromPDF } from '../services/pdfService';
-import { chunkPdfText, getDocumentState, startExtraction } from '../services/extractionService';
+import {
+  EXTRACTION_VERSION,
+  chunkPdfText,
+  getDocumentState,
+  isExtractionRunning,
+  startExtraction,
+} from '../services/extractionService';
 import { getRepository } from '../db';
 import { isAIEnabled } from '../ai';
 import { requireClientId } from '../middleware/clientId';
@@ -45,7 +51,14 @@ router.post('/', uploadLimit, requireClientId, upload.single('file'), async (req
         return;
       }
       const text = await extractTextFromPDF(req.file.buffer);
-      await repo.createDocument(hash, req.file.originalname, chunkPdfText(text));
+      await repo.createDocument(hash, req.file.originalname, chunkPdfText(text), EXTRACTION_VERSION);
+    } else if (
+      isAIEnabled() &&
+      !isExtractionRunning(hash) &&
+      ((await repo.getExtractionVersion(hash)) ?? 0) < EXTRACTION_VERSION
+    ) {
+      // Extracted with an older prompt (e.g. before page references): redo it.
+      await repo.resetDocument(hash, EXTRACTION_VERSION);
     }
     await repo.linkClient(res.locals.clientId, hash, req.file.originalname);
 

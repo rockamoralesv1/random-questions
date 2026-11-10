@@ -3,6 +3,8 @@ export interface QAPair {
   answer: string;
   /** Section/topic heading from the PDF, or null when it has no topic structure. */
   topic?: string | null;
+  /** Where the answer comes from in the PDF, as written (e.g. "Fuente en el documento: págs. 3, 11"). */
+  source?: string | null;
 }
 
 export interface GradingResult {
@@ -18,6 +20,7 @@ export interface QuizSession {
   answers: Array<{
     question: string;
     correctAnswer: string;
+    source?: string | null;
     userAnswer: string;
     passed: boolean;
     missingConcepts: string[];

@@ -16,6 +16,10 @@ const MIN_SPLIT_SIZE = 2_000;
 
 // 'paused': chunks are pending but AI is disabled (AI_ENABLED=false); they
 // resume automatically once it is re-enabled.
+// Bump when the extraction prompt/output changes. Re-uploading a PDF that was
+// extracted with an older version re-extracts it (2: page "source" references).
+export const EXTRACTION_VERSION = 2;
+
 export type DocumentStatus = 'processing' | 'paused' | 'done' | 'partial' | 'error';
 
 export interface DocumentState {
@@ -31,6 +35,10 @@ export interface DocumentState {
 
 /** Hashes whose extraction is running in this process. */
 const running = new Set<string>();
+
+export function isExtractionRunning(hash: string): boolean {
+  return running.has(hash);
+}
 
 export function chunkPdfText(text: string): string[] {
   return splitText(text, CHUNK_SIZE, CHUNK_OVERLAP);

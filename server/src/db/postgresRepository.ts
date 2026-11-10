@@ -21,6 +21,9 @@ CREATE TABLE IF NOT EXISTS document_chunks (
   PRIMARY KEY (hash, chunk_index)
 );
 
+-- Added after the first deploy; bumped when the extraction prompt changes.
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS extraction_version INT NOT NULL DEFAULT 1;
+
 CREATE TABLE IF NOT EXISTS client_documents (
   client_id  TEXT NOT NULL,
   hash       TEXT NOT NULL REFERENCES documents(hash) ON DELETE CASCADE,
@@ -52,13 +55,14 @@ export class PostgresRepository implements Repository {
     return (r.rowCount ?? 0) > 0;
   }
 
-  async createDocument(hash: string, fileName: string, chunkTexts: string[]): Promise<void> {
+  async createDocument(hash: string, fileName: string, chunkTexts: string[], version: number): Promise<void> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
       const inserted = await client.query(
-        'INSERT INTO documents (hash, file_name) VALUES ($1, $2) ON CONFLICT DO NOTHING',
-        [hash, fileName],
+        `INSERT INTO documents (hash, file_name, extraction_version) VALUES ($1, $2, $3)
+         ON CONFLICT DO NOTHING`,
+        [hash, fileName, version],
       );
       if (inserted.rowCount) {
         await client.query(
@@ -67,6 +71,30 @@ export class PostgresRepository implements Repository {
           [hash, chunkTexts],
         );
       }
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getExtractionVersion(hash: string): Promise<number | null> {
+    const r = await this.pool.query('SELECT extraction_version FROM documents WHERE hash = $1', [hash]);
+    return r.rows[0]?.extraction_version ?? null;
+  }
+
+  async resetDocument(hash: string, version: number): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `UPDATE document_chunks SET status = 'pending', pairs = NULL, error = NULL, updated_at = now()
+          WHERE hash = $1`,
+        [hash],
+      );
+      await client.query('UPDATE documents SET extraction_version = $2 WHERE hash = $1', [hash, version]);
       await client.query('COMMIT');
     } catch (err) {
       await client.query('ROLLBACK');

@@ -13,7 +13,8 @@ Given raw text extracted from a PDF (possibly one fragment of a larger document)
 identify and extract every question-and-answer pair.
 
 Return ONLY a JSON object with key "pairs" containing an array of objects,
-each with "question" (string), "answer" (string) and "topic" (string or null).
+each with "question" (string), "answer" (string), "topic" (string or null) and
+"source" (string or null).
 
 Rules:
 - Preserve the full answer text. Do not fabricate or summarize.
@@ -22,6 +23,10 @@ Rules:
   like "1." or "Chapter 3:"). Use the same string for every question in the same
   section. If the fragment starts mid-section with no heading visible yet, use
   null for those questions. If the document has no topic structure, use null.
+- "source": if the document cites where the answer comes from (page references
+  such as "Fuente en el documento: págs. 3, 11", "p. 12", "Ver página 4"), copy
+  that reference exactly as written into "source" and leave it OUT of "answer".
+  Use null when the pair has no such reference.
 - If a pair is cut off at the very start or end of the fragment, skip it.
 - No explanation, no markdown fences, pure JSON only.
 - If no clear Q&A pairs are found, return { "pairs": [] }.`;
@@ -36,6 +41,7 @@ const ResponseSchema = z.object({
       question: z.string().min(1),
       answer: z.string().min(1),
       topic: z.string().nullish(),
+      source: z.string().nullish(),
     }),
   ),
 });
@@ -54,5 +60,6 @@ export function parseExtractionResponse(raw: string): QAPair[] {
     question: p.question,
     answer: p.answer,
     topic: p.topic?.trim() || null,
+    source: p.source?.trim() || null,
   }));
 }

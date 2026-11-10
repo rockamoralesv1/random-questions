@@ -64,6 +64,7 @@ export function recordAnswer(
   session.answers.push({
     question: pair.question,
     correctAnswer: pair.answer,
+    source: pair.source ?? null,
     userAnswer,
     passed,
     missingConcepts,

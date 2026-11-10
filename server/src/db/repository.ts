@@ -31,7 +31,11 @@ export interface Repository {
   init(): Promise<void>;
   documentExists(hash: string): Promise<boolean>;
   /** Creates the document with its chunks as 'pending'. No-op if it exists. */
-  createDocument(hash: string, fileName: string, chunkTexts: string[]): Promise<void>;
+  createDocument(hash: string, fileName: string, chunkTexts: string[], version: number): Promise<void>;
+  /** Extraction version the document was last extracted with (null if missing). */
+  getExtractionVersion(hash: string): Promise<number | null>;
+  /** Discards extracted pairs and re-queues every chunk under a new version. */
+  resetDocument(hash: string, version: number): Promise<void>;
   /** Up to `limit` document hashes starting with `prefix` (for share codes). */
   findHashesByPrefix(prefix: string, limit: number): Promise<string[]>;
   /** File name the document was first uploaded with. */

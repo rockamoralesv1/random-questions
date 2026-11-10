@@ -3,6 +3,7 @@ import { useQuizStore } from '../store/quizStore';
 import { getStats, clearStats } from '../lib/statsStorage';
 import { startQuizSession } from '../api/quizApi';
 import { translations } from '../i18n';
+import { SourceRef } from './SourceRef';
 
 export function StatsView() {
   const { language, setSession, setCurrentQuestion, setView, reset } = useQuizStore();
@@ -84,6 +85,7 @@ export function StatsView() {
                         <span className="font-medium text-gray-500">{tr.correctPrefix}</span>
                         {s.correctAnswer}
                       </p>
+                      <SourceRef source={s.source} className="mt-0.5" />
                       {/* Fail-rate bar */}
                       <div className="mt-2 flex items-center gap-2">
                         <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">

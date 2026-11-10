@@ -5,6 +5,7 @@ const STATS_KEY = 'quiz_stats';
 export interface QuestionStat {
   question: string;
   correctAnswer: string;
+  source?: string | null;
   attempts: number;
   fails: number;
   lastSeen: number;
@@ -42,6 +43,7 @@ export function recordResults(details: ResultsResponse['details']): void {
       fails: 0,
       lastSeen: 0,
     };
+    if (d.source) existing.source = d.source;
     existing.attempts += 1;
     if (!d.passed) existing.fails += 1;
     existing.lastSeen = now;

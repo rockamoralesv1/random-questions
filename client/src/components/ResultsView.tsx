@@ -5,6 +5,7 @@ import { recordResults } from '../lib/statsStorage';
 import { clearDraftSession } from '../lib/draftSession';
 import type { ResultsResponse } from '../types';
 import { translations } from '../i18n';
+import { SourceRef } from './SourceRef';
 
 export function ResultsView() {
   const { sessionId, pairs, reset, language, setSession, setCurrentQuestion, setView } = useQuizStore();
@@ -107,6 +108,9 @@ export function ResultsView() {
                     <p className="text-sm text-gray-500 mt-1">
                       <span className="font-medium">{tr.correctPrefix}</span>{item.correctAnswer}
                     </p>
+                  )}
+                  {!item.passed && (
+                    <SourceRef source={item.source} className="mt-0.5" />
                   )}
                   {!item.passed && item.missingConcepts.length > 0 && (
                     <p className="text-xs text-red-600 mt-1">

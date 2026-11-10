@@ -2,6 +2,7 @@ import { diffWords } from 'diff';
 import type { EvaluateResponse } from '../types';
 import type { UseTTSReturn } from '../hooks/useTTS';
 import { translations } from '../i18n';
+import { SourceRef } from './SourceRef';
 import type { Lang } from '../i18n';
 
 interface AnswerFeedbackProps {
@@ -14,7 +15,7 @@ interface AnswerFeedbackProps {
 }
 
 export function AnswerFeedback({ evaluation, userAnswer, tts, onNext, isLast, lang }: AnswerFeedbackProps) {
-  const { passed, correctAnswer, missingConcepts, feedback } = evaluation;
+  const { passed, correctAnswer, source, missingConcepts, feedback } = evaluation;
   const tr = translations[lang];
   const diffParts = diffWords(userAnswer, correctAnswer);
 
@@ -61,6 +62,9 @@ export function AnswerFeedback({ evaluation, userAnswer, tts, onNext, isLast, la
           </p>
         </div>
       )}
+
+      {/* Shown even when passed, so the user can look the answer up in the PDF */}
+      <SourceRef source={source} className="mb-3" />
 
       {!passed && missingConcepts.length > 0 && (
         <div className="mb-3">

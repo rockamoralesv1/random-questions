@@ -104,11 +104,13 @@ export async function submitAnswer(
   return res.json();
 }
 
-export async function getCorrectAnswer(sessionId: string): Promise<string> {
+export async function getCorrectAnswer(
+  sessionId: string,
+): Promise<{ correctAnswer: string; source: string | null }> {
   const res = await fetch(`/api/quiz/answer/${sessionId}`);
   if (!res.ok) throw new Error('Failed to get answer');
   const data = await res.json();
-  return data.correctAnswer as string;
+  return { correctAnswer: data.correctAnswer as string, source: data.source ?? null };
 }
 
 export async function fetchResults(sessionId: string): Promise<ResultsResponse> {

@@ -6,7 +6,14 @@ const router = Router();
 
 const BodySchema = z.object({
   pairs: z
-    .array(z.object({ question: z.string().min(1), answer: z.string().min(1) }))
+    .array(
+      z.object({
+        question: z.string().min(1),
+        answer: z.string().min(1),
+        topic: z.string().nullish(),
+        source: z.string().nullish(),
+      }),
+    )
     .min(1),
 });
 

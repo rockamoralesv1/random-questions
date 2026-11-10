@@ -3,6 +3,8 @@ export interface QAPair {
   answer: string;
   /** Section/topic heading from the PDF, or null when it has no topics. */
   topic?: string | null;
+  /** Where the answer comes from in the PDF, e.g. "Fuente en el documento: págs. 3, 11". */
+  source?: string | null;
 }
 
 // 'paused': chunks pending but AI is disabled on the server (AI_ENABLED=false).
@@ -34,6 +36,7 @@ export interface ClientDocument {
 export interface EvaluateResponse {
   passed: boolean;
   correctAnswer: string;
+  source?: string | null;
   missingConcepts: string[];
   feedback: string;
   next: { questionIndex: number; question: string } | null;
@@ -54,6 +57,7 @@ export interface ResultsResponse {
   details: Array<{
     question: string;
     correctAnswer: string;
+    source?: string | null;
     userAnswer: string;
     passed: boolean;
     missingConcepts: string[];

@@ -79,7 +79,7 @@ describe('extraction flow (mock provider, in-memory DB)', () => {
   }
 
   it('extracts every chunk, saves it, and dedupes across chunks', async () => {
-    await repo.createDocument('a'.repeat(64), 'test.pdf', ['part one', 'part two']);
+    await repo.createDocument('a'.repeat(64), 'test.pdf', ['part one', 'part two'], 2);
     startExtraction('a'.repeat(64));
     const state = await waitUntilSettled('a'.repeat(64));
 
@@ -93,7 +93,7 @@ describe('extraction flow (mock provider, in-memory DB)', () => {
   it('pauses instead of calling the AI when AI_ENABLED=false, and resumes later', async () => {
     process.env.AI_ENABLED = 'false';
     const hash = 'b'.repeat(64);
-    await repo.createDocument(hash, 'test.pdf', ['only part']);
+    await repo.createDocument(hash, 'test.pdf', ['only part'], 2);
     startExtraction(hash);
 
     const paused = await getDocumentState(hash);

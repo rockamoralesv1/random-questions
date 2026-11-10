@@ -3,6 +3,7 @@ import { useQuizStore } from '../store/quizStore';
 import { startQuizSession, retryDocument } from '../api/quizApi';
 import { pollDocument, stopPolling } from '../lib/documentPoller';
 import { shareCodeFor, copyToClipboard } from '../lib/shareCode';
+import { SourceRef } from './SourceRef';
 import { translations } from '../i18n';
 import type { QAPair } from '../types';
 import type { QuizMode } from '../types';
@@ -512,6 +513,7 @@ export function PreviewPairs() {
                     )}
                     <p className="font-medium text-gray-800 text-sm">{pair.question}</p>
                     <p className="text-gray-400 text-xs mt-1 line-clamp-2">{pair.answer}</p>
+                    <SourceRef source={pair.source} className="mt-0.5" />
                   </div>
                   <button
                     onClick={(e) => { e.stopPropagation(); handleRemove(originalIndex); }}

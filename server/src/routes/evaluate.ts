@@ -32,6 +32,7 @@ router.post('/', evaluateLimit, async (req, res, next) => {
     }
 
     const correctAnswer = session.pairs[questionIndex].answer;
+    const source = session.pairs[questionIndex].source ?? null;
 
     let result: { passed: boolean; missingConcepts: string[]; feedback: string };
 
@@ -49,6 +50,7 @@ router.post('/', evaluateLimit, async (req, res, next) => {
     res.json({
       passed: result.passed,
       correctAnswer,
+      source,
       missingConcepts: result.missingConcepts,
       feedback: result.feedback,
       next: next ? { questionIndex: next.index, question: next.question } : null,

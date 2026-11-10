@@ -8,6 +8,7 @@ import { MicButton } from './MicButton';
 import { AnswerFeedback } from './AnswerFeedback';
 import { translations } from '../i18n';
 import { getCorrectAnswer } from '../api/quizApi';
+import { SourceRef } from './SourceRef';
 import { detectSTTTier } from '../lib/stt/detectSTTTier';
 import { saveDraftSession } from '../lib/draftSession';
 import type { STTTier } from '../lib/stt/detectSTTTier';
@@ -27,6 +28,7 @@ export function QuizView() {
 
   // Flashcard state
   const [revealedAnswer, setRevealedAnswer] = useState<string | null>(null);
+  const [revealedSource, setRevealedSource] = useState<string | null>(null);
   const [isRevealing, setIsRevealing] = useState(false);
 
   const spokenQuestion = useRef<string | null>(null);
@@ -55,6 +57,7 @@ export function QuizView() {
     }
     // Reset flashcard reveal on new question
     setRevealedAnswer(null);
+    setRevealedSource(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentQuestion, quizMode]);
 
@@ -72,8 +75,9 @@ export function QuizView() {
     if (!sessionId || isRevealing) return;
     setIsRevealing(true);
     try {
-      const answer = await getCorrectAnswer(sessionId);
-      setRevealedAnswer(answer);
+      const { correctAnswer, source } = await getCorrectAnswer(sessionId);
+      setRevealedAnswer(correctAnswer);
+      setRevealedSource(source);
     } catch {
       setRevealedAnswer('—');
     } finally {
@@ -94,6 +98,7 @@ export function QuizView() {
     setEvaluation(null);
     stt.reset();
     setRevealedAnswer(null);
+    setRevealedSource(null);
 
     if (!evaluation.next) {
       goToResults();
@@ -214,6 +219,7 @@ export function QuizView() {
                           {tr.correctAnswer}
                         </p>
                         <p className="text-gray-800 leading-relaxed">{revealedAnswer}</p>
+                        <SourceRef source={revealedSource} className="mt-2" />
                       </div>
 
                       {/* Self-assess buttons */}
