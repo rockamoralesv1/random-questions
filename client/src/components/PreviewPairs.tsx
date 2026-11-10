@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuizStore } from '../store/quizStore';
-import { startQuizSession } from '../api/quizApi';
+import { startQuizSession, retryDocument } from '../api/quizApi';
+import { pollDocument, stopPolling } from '../lib/documentPoller';
+import { shareCodeFor, copyToClipboard } from '../lib/shareCode';
 import { translations } from '../i18n';
 import type { QAPair } from '../types';
 import type { QuizMode } from '../types';
@@ -117,8 +119,12 @@ function SearchDialog({ pairs, selected, onToggle, onClose, lang }: SearchDialog
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function PreviewPairs() {
-  const { pairs, setView, setSession, setCurrentQuestion, language, quizMode, setQuizMode } = useQuizStore();
+  const {
+    pairs, setView, setSession, setCurrentQuestion, language, quizMode, setQuizMode,
+    document: doc, pairsVersion, applyDocumentState,
+  } = useQuizStore();
   const tr = translations[language];
+  const es = language === 'es';
 
   // Removed pairs (bad AI extractions) — by original document index
   const [removed, setRemoved] = useState<Set<number>>(new Set());
@@ -134,11 +140,79 @@ export function PreviewPairs() {
   const [startError, setStartError] = useState<string | null>(null);
   const [rangeInput, setRangeInput] = useState('');
   const [rangeError, setRangeError] = useState<string | null>(null);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  // Pairs keep arriving while the server extracts the PDF. New ones are
+  // appended and selected; if the list is replaced (another bank, or a retry
+  // that re-inserts chunks), selection and removals start over.
+  const knownCount = useRef(pairs.length);
+  const knownVersion = useRef(pairsVersion);
+  useEffect(() => {
+    if (pairsVersion !== knownVersion.current) {
+      knownVersion.current = pairsVersion;
+      knownCount.current = pairs.length;
+      setRemoved(new Set());
+      setSelected(new Set(pairs.map((_, i) => i)));
+      return;
+    }
+    if (pairs.length > knownCount.current) {
+      const from = knownCount.current;
+      knownCount.current = pairs.length;
+      setSelected((prev) => {
+        const next = new Set(prev);
+        for (let i = from; i < pairs.length; i++) next.add(i);
+        return next;
+      });
+    }
+  }, [pairs, pairsVersion]);
 
   // Active = not removed, in original document order
   const activePairs = pairs
     .map((pair, originalIndex) => ({ pair, originalIndex }))
     .filter(({ originalIndex }) => !removed.has(originalIndex));
+
+  // Topics in document order, with the (original) indices of their questions.
+  const topics = useMemo(() => {
+    const groups = new Map<string, number[]>();
+    for (const { pair, originalIndex } of activePairs) {
+      const key = pair.topic ?? '';
+      groups.set(key, [...(groups.get(key) ?? []), originalIndex]);
+    }
+    const hasTopics = [...groups.keys()].some((k) => k !== '');
+    return hasTopics ? [...groups.entries()].map(([name, indices]) => ({ name, indices })) : [];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pairs, removed]);
+
+  const toggleTopic = (indices: number[]) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const allSelected = indices.every((i) => next.has(i));
+      indices.forEach((i) => (allSelected ? next.delete(i) : next.add(i)));
+      return next;
+    });
+  };
+
+  const handleRetry = async () => {
+    if (!doc) return;
+    setIsRetrying(true);
+    try {
+      const state = await retryDocument(doc.hash);
+      applyDocumentState(state, doc.fileName);
+      if (state.status === 'processing') pollDocument(doc.hash, doc.fileName);
+    } catch (err) {
+      setStartError((err as Error).message);
+    } finally {
+      setIsRetrying(false);
+    }
+  };
+
+  const handleCopyShare = async () => {
+    if (doc && (await copyToClipboard(shareCodeFor(doc.hash)))) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
+  };
 
   const selectedCount = activePairs.filter(({ originalIndex }) =>
     selected.has(originalIndex),
@@ -225,6 +299,9 @@ export function PreviewPairs() {
 
     setIsStarting(true);
     setStartError(null);
+    // Starting before extraction finishes uses the questions loaded so far.
+    // The server keeps going; reopening the bank later shows all of them.
+    stopPolling();
     try {
       const session = await startQuizSession(quizPairs);
       setSession(session.sessionId, quizPairs, session.totalCount);
@@ -243,6 +320,66 @@ export function PreviewPairs() {
         <div className="mb-4 shrink-0">
           <h2 className="text-2xl font-bold text-gray-800">{tr.reviewTitle}</h2>
           <p className="text-gray-500 mt-1">{tr.reviewSubtitle(activePairs.length)}</p>
+
+          {doc && (doc.status === 'processing' || doc.status === 'paused') && (
+            <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+              <div className="flex items-center gap-2">
+                {doc.status === 'processing' && (
+                  <span className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin shrink-0" />
+                )}
+                <span>
+                  {doc.status === 'paused'
+                    ? es
+                      ? `IA deshabilitada: faltan ${doc.totalChunks - doc.completedChunks} de ${doc.totalChunks} partes. Se reanudará al habilitarla.`
+                      : `AI disabled: ${doc.totalChunks - doc.completedChunks} of ${doc.totalChunks} parts left. Resumes once enabled.`
+                    : es
+                      ? `Cargando preguntas… parte ${doc.completedChunks} de ${doc.totalChunks}`
+                      : `Loading questions… part ${doc.completedChunks} of ${doc.totalChunks}`}
+                </span>
+              </div>
+              <div className="mt-2 h-1.5 rounded bg-blue-100 overflow-hidden">
+                <div
+                  className="h-full bg-blue-500 transition-all"
+                  style={{ width: `${(100 * doc.completedChunks) / Math.max(1, doc.totalChunks)}%` }}
+                />
+              </div>
+              {doc.status === 'processing' && (
+                <p className="mt-1 text-xs text-blue-600">
+                  {es
+                    ? 'Puedes empezar ya con las preguntas cargadas; el resto seguirá guardándose.'
+                    : 'You can start now with the loaded questions; the rest keeps being saved.'}
+                </p>
+              )}
+            </div>
+          )}
+
+          {doc && doc.failedChunks > 0 && doc.status !== 'processing' && (
+            <div className="mt-3 flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              <span className="flex-1">
+                {es
+                  ? `${doc.failedChunks} de ${doc.totalChunks} partes no se pudieron leer.`
+                  : `${doc.failedChunks} of ${doc.totalChunks} parts could not be read.`}
+                {doc.error && <span className="block text-xs text-red-500 truncate">{doc.error}</span>}
+              </span>
+              <button
+                onClick={() => void handleRetry()}
+                disabled={isRetrying}
+                className="px-3 py-1 rounded-lg bg-red-600 text-white text-xs font-medium hover:bg-red-700 disabled:opacity-60 shrink-0"
+              >
+                {isRetrying ? '…' : es ? 'Reintentar' : 'Retry'}
+              </button>
+            </div>
+          )}
+
+          {doc && (
+            <p className="mt-2 text-xs text-gray-400">
+              {es ? 'Código para compartir: ' : 'Share code: '}
+              <code className="font-mono text-gray-600">{shareCodeFor(doc.hash)}</code>{' '}
+              <button onClick={() => void handleCopyShare()} className="text-blue-600 hover:underline">
+                {copied ? (es ? '¡Copiado!' : 'Copied!') : es ? 'Copiar' : 'Copy'}
+              </button>
+            </p>
+          )}
         </div>
 
         {/* Toolbar */}
@@ -307,6 +444,32 @@ export function PreviewPairs() {
             </button>
           </div>
 
+          {topics.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs text-gray-400 shrink-0">{es ? 'Temas:' : 'Topics:'}</span>
+              {topics.map(({ name, indices }) => {
+                const all = indices.every((i) => selected.has(i));
+                const some = !all && indices.some((i) => selected.has(i));
+                return (
+                  <button
+                    key={name || '__none'}
+                    onClick={() => toggleTopic(indices)}
+                    title={es ? 'Seleccionar / quitar este tema' : 'Select / deselect this topic'}
+                    className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${
+                      all
+                        ? 'bg-blue-600 border-blue-600 text-white'
+                        : some
+                          ? 'bg-blue-50 border-blue-300 text-blue-700'
+                          : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    {name || (es ? 'Sin tema' : 'No topic')} ({indices.length})
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {rangeError && (
             <p className="text-xs text-red-500 -mt-1">
               {rangeError}
@@ -344,6 +507,9 @@ export function PreviewPairs() {
                     #{originalIndex + 1}
                   </span>
                   <div className="flex-1 min-w-0">
+                    {pair.topic && (
+                      <p className="text-[11px] font-medium text-indigo-500 mb-0.5 truncate">{pair.topic}</p>
+                    )}
                     <p className="font-medium text-gray-800 text-sm">{pair.question}</p>
                     <p className="text-gray-400 text-xs mt-1 line-clamp-2">{pair.answer}</p>
                   </div>

@@ -1,48 +1,74 @@
+import { getClientId } from '../lib/clientId';
 import type {
+  ClientDocument,
+  DocumentState,
   EvaluateResponse,
   SessionResponse,
   ResultsResponse,
   QAPair,
 } from '../types';
 
-export async function uploadPDF(
-  file: File,
-): Promise<{ hash: string; pairs: QAPair[] } | { jobId: string }> {
-  const form = new FormData();
-  form.append('file', file);
-  const res = await fetch('/api/upload', { method: 'POST', body: form });
+async function jsonOrThrow<T>(res: Response, fallback: string): Promise<T> {
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error ?? 'Upload failed');
+    throw Object.assign(new Error(err.error ?? fallback), { status: res.status });
   }
   return res.json();
 }
 
-export async function pollUploadJob(
-  jobId: string,
-  onProgress?: (attempt: number) => void,
-): Promise<{ hash: string; pairs: QAPair[] }> {
-  const INTERVAL_MS = 2000;
-  const MAX_ATTEMPTS = 120; // 4 minutes max
+const withClientId = (init: RequestInit = {}): RequestInit => ({
+  ...init,
+  headers: { ...(init.headers ?? {}), 'X-Client-Id': getClientId() },
+});
 
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    await new Promise((r) => setTimeout(r, INTERVAL_MS));
-    onProgress?.(attempt);
-
-    const res = await fetch(`/api/upload/status/${jobId}`);
-    if (!res.ok) throw new Error('Job status check failed');
-
-    const data = (await res.json()) as
-      | { status: 'processing' }
-      | { status: 'done'; hash: string; pairs: QAPair[] }
-      | { status: 'error'; message: string };
-
-    if (data.status === 'done') return { hash: data.hash, pairs: data.pairs };
-    if (data.status === 'error') throw new Error(data.message);
-    // status === 'processing' → keep polling
+/** Server feature flags (AI_ENABLED). Assumes enabled if the call fails. */
+export async function getServerConfig(): Promise<{ aiEnabled: boolean }> {
+  try {
+    const res = await fetch('/api/config');
+    if (res.ok) return res.json();
+  } catch {
+    // fall through
   }
+  return { aiEnabled: true };
+}
 
-  throw new Error('Extraction timed out. Please try a smaller PDF.');
+/** Uploads a PDF; extraction continues on the server — poll getDocument(). */
+export async function uploadPDF(file: File): Promise<DocumentState> {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch('/api/upload', withClientId({ method: 'POST', body: form }));
+  return jsonOrThrow(res, 'Upload failed');
+}
+
+export async function getDocument(hash: string): Promise<DocumentState> {
+  return jsonOrThrow(await fetch(`/api/documents/${hash}`), 'Could not load question bank');
+}
+
+export async function retryDocument(hash: string): Promise<DocumentState> {
+  const res = await fetch(`/api/documents/${hash}/retry`, { method: 'POST' });
+  return jsonOrThrow(res, 'Retry failed');
+}
+
+export async function listDocuments(): Promise<ClientDocument[]> {
+  return jsonOrThrow(await fetch('/api/documents', withClientId()), 'Could not list documents');
+}
+
+export async function removeDocument(hash: string): Promise<void> {
+  const res = await fetch(`/api/documents/${hash}`, withClientId({ method: 'DELETE' }));
+  if (!res.ok && res.status !== 404) throw new Error('Could not remove document');
+}
+
+/** Adds a shared question bank (by share code) to this browser's list. */
+export async function importDocument(code: string): Promise<DocumentState> {
+  const res = await fetch(
+    '/api/documents/import',
+    withClientId({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    }),
+  );
+  return jsonOrThrow(res, 'Import failed');
 }
 
 export async function startQuizSession(

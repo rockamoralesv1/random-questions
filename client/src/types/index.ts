@@ -1,6 +1,34 @@
 export interface QAPair {
   question: string;
   answer: string;
+  /** Section/topic heading from the PDF, or null when it has no topics. */
+  topic?: string | null;
+}
+
+// 'paused': chunks pending but AI is disabled on the server (AI_ENABLED=false).
+export type DocumentStatus = 'processing' | 'paused' | 'done' | 'partial' | 'error';
+
+/** GET /api/documents/:hash — extraction progress of a question bank. */
+export interface DocumentState {
+  hash: string;
+  status: DocumentStatus;
+  totalChunks: number;
+  completedChunks: number;
+  failedChunks: number;
+  /** In document order; while processing it only grows by appending. */
+  pairs: QAPair[];
+  error: string | null;
+}
+
+/** GET /api/documents — one of this browser's question banks. */
+export interface ClientDocument {
+  hash: string;
+  fileName: string;
+  savedAt: number;
+  totalChunks: number;
+  doneChunks: number;
+  failedChunks: number;
+  questionCount: number;
 }
 
 export interface EvaluateResponse {

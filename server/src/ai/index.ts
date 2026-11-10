@@ -7,6 +7,7 @@ import './providers/mock/index';
 
 export { getProvider, getProviderWithFallback, registerProvider } from './registry';
 export { requireCapability, hasCapability } from './capabilities';
+export { isAIEnabled, requireAI } from './aiEnabled';
 export type {
   AIProvider,
   QAExtractionCapability,

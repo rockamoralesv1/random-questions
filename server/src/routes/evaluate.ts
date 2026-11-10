@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { getSession, getCurrentQuestion, recordAnswer } from '../services/quizService';
 import { evaluateAnswer } from '../services/evaluationService';
+import { evaluateLimit } from '../middleware/rateLimit';
 
 const router = Router();
 
@@ -13,7 +14,7 @@ const BodySchema = z.object({
   selfAssess: z.boolean().optional(),
 });
 
-router.post('/', async (req, res, next) => {
+router.post('/', evaluateLimit, async (req, res, next) => {
   try {
     const parsed = BodySchema.safeParse(req.body);
     if (!parsed.success) {

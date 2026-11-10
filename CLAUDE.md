@@ -44,6 +44,12 @@ npm test -- path/to/test.ts
 # Required
 OPENAI_API_KEY=sk-...
 
+# Optional — master switch for all paid AI calls (default: true)
+AI_ENABLED=true
+
+# Optional — Postgres for question banks (Heroku sets it); in-memory without it
+DATABASE_URL=postgres://...
+
 # Optional — switches the AI provider (default: openai)
 AI_PROVIDER=openai         # or: anthropic, mock
 AI_FALLBACK_PROVIDER=openai  # fills TTS/STT gaps when primary lacks them
@@ -115,8 +121,21 @@ Client uses the `diff` npm package to highlight missing words in the correct ans
 
 ## API Endpoints
 
+Question banks are stored in Postgres (`server/src/db/`) as per-chunk rows: the
+PDF text is split into ~15k-char chunks (`services/extractionService.ts`), each
+extracted in the background and saved as it finishes; the client polls
+`GET /api/documents/:hash` and the preview fills in progressively. Unfinished
+chunks resume on boot. Browsers are identified by an anonymous personal code
+(`X-Client-Id`); a bank's share code is the first 12 hex chars of its hash.
+
 ```
-POST   /api/upload              → { sessionId, questionCount }
+POST   /api/upload              → DocumentState (extraction continues in background)
+GET    /api/documents           → this browser's banks (X-Client-Id)
+GET    /api/documents/:hash     → { status, totalChunks, completedChunks, failedChunks, pairs, error }
+POST   /api/documents/:hash/retry  → re-extract failed chunks
+POST   /api/documents/import    → { code } adds a shared bank
+DELETE /api/documents/:hash     → remove from this browser's list
+GET    /api/config              → { aiEnabled }
 GET    /api/quiz/session/:id    → { currentIndex, totalCount, question }
 POST   /api/evaluate            → { passed, correctAnswer, missingConcepts, feedback, next }
 GET    /api/quiz/results/:id    → { totalQuestions, passed, failed, details[] }

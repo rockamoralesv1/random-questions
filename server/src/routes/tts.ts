@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { getProvider, getProviderWithFallback, requireCapability, hasCapability } from '../ai';
+import { getProvider, getProviderWithFallback, requireCapability, hasCapability, isAIEnabled, requireAI } from '../ai';
 import { makeRateLimit } from '../middleware/rateLimit';
 
 const router = Router();
@@ -18,7 +18,7 @@ function getTTSProvider() {
 
 router.get('/available', (_req, res) => {
   const provider = getTTSProvider();
-  const available = hasCapability(provider, 'tts');
+  const available = isAIEnabled() && hasCapability(provider, 'tts');
   // Always prefer server TTS when it's available — even OpenAI nova sounds
   // significantly better than the OS browser voices.
   const preferServer = available;
@@ -28,6 +28,7 @@ router.get('/available', (_req, res) => {
 
 router.post(
   '/',
+  requireAI,
   makeRateLimit({ windowMs: 60_000, max: 30 }),
   async (req, res, next) => {
     const parsed = BodySchema.safeParse(req.body);

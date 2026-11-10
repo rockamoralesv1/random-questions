@@ -259,6 +259,10 @@ export function useSpeechRecognition(lang: Lang = 'en'): UseSpeechRecognitionRet
 
         try {
           const response = await fetch('/api/stt', { method: 'POST', body: formData });
+          if (response.status === 503) {
+            // AI_ENABLED=false on the server — only the browser tier works.
+            throw new Error('Server speech recognition is disabled. Use Chrome/Edge/Safari or flashcard mode.');
+          }
           if (!response.ok) throw new Error(`STT server error: ${response.status}`);
           const data = (await response.json()) as { transcript: string };
           setFinalTranscript(data.transcript);

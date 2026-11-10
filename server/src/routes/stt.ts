@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { getProviderWithFallback, requireCapability } from '../ai';
+import { getProviderWithFallback, requireCapability, requireAI } from '../ai';
 import { makeRateLimit } from '../middleware/rateLimit';
 
 const router = Router();
@@ -30,6 +30,7 @@ const upload = multer({
 
 router.post(
   '/',
+  requireAI,
   makeRateLimit({ windowMs: 60_000, max: 60 }),
   upload.single('audio'),
   async (req, res, next) => {

@@ -3,7 +3,11 @@ import type { QAPair, GradingResult } from '../types';
 export type { QAPair, GradingResult };
 
 export interface QAExtractionCapability {
-  extractQAPairs(pdfText: string): Promise<QAPair[]>;
+  /**
+   * Extracts pairs from ONE text fragment (extractionService does the
+   * chunking). Throws TruncatedOutputError when the output hit the token limit.
+   */
+  extractQAPairs(text: string): Promise<QAPair[]>;
 }
 
 export interface AnswerGradingCapability {

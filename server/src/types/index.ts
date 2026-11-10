@@ -1,6 +1,8 @@
 export interface QAPair {
   question: string;
   answer: string;
+  /** Section/topic heading from the PDF, or null when it has no topic structure. */
+  topic?: string | null;
 }
 
 export interface GradingResult {

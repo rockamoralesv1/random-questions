@@ -1,4 +1,4 @@
-import { getProviderWithFallback } from '../ai';
+import { getProviderWithFallback, isAIEnabled } from '../ai';
 import type { GradingResult } from '../types';
 
 const FUZZY_THRESHOLD = 0.85;
@@ -35,6 +35,18 @@ export async function evaluateAnswer(
       passed: true,
       missingConcepts: [],
       feedback: 'Great answer!',
+    };
+  }
+
+  if (!isAIEnabled()) {
+    // No AI: grade on word overlap alone and list the answer's key words that
+    // were not said.
+    const said = new Set(normalize(userAnswer));
+    const missing = [...new Set(normalize(correctAnswer))].filter((w) => w.length > 3 && !said.has(w));
+    return {
+      passed: false,
+      missingConcepts: missing.slice(0, 10),
+      feedback: 'AI grading is disabled — graded by matching words with the correct answer.',
     };
   }
 

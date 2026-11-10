@@ -1,0 +1,100 @@
+import { Router } from 'express';
+import { getRepository } from '../db';
+import { requireAI } from '../ai';
+import { getDocumentState, retryFailedChunks } from '../services/extractionService';
+import { requireClientId } from '../middleware/clientId';
+import { importLimit, retryLimit } from '../middleware/rateLimit';
+
+const router = Router();
+const HASH_RE = /^[a-f0-9]{64}$/;
+
+// GET /api/documents — this browser's question banks, most recent first.
+router.get('/', requireClientId, async (_req, res, next) => {
+  try {
+    res.json(await getRepository().listClientDocuments(res.locals.clientId));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/documents/import { code } — add a shared bank to this browser's
+// list. The share code is the first SHARE_CODE_LENGTH hex chars of the hash
+// (a full hash is accepted too).
+export const SHARE_CODE_LENGTH = 12;
+router.post('/import', importLimit, requireClientId, async (req, res, next) => {
+  try {
+    const code = String(req.body?.code ?? '').trim().toLowerCase();
+    if (!/^[a-f0-9]+$/.test(code) || code.length < SHARE_CODE_LENGTH || code.length > 64) {
+      res.status(400).json({ error: 'Invalid share code' });
+      return;
+    }
+    const repo = getRepository();
+    const matches = await repo.findHashesByPrefix(code, 2);
+    if (matches.length === 0) {
+      res.status(404).json({ error: 'No question bank found for that code' });
+      return;
+    }
+    if (matches.length > 1) {
+      res.status(409).json({ error: 'Ambiguous code — use a longer one' });
+      return;
+    }
+    const hash = matches[0];
+    await repo.linkClient(res.locals.clientId, hash, (await repo.getDocumentName(hash)) ?? 'PDF');
+    res.json(await getDocumentState(hash));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/documents/:hash — extraction progress and the pairs extracted so far.
+// Polled by the client while status is 'processing'.
+router.get('/:hash', async (req, res, next) => {
+  try {
+    const hash = String(req.params.hash);
+    if (!HASH_RE.test(hash)) {
+      res.status(400).json({ error: 'Invalid document id' });
+      return;
+    }
+    const state = await getDocumentState(hash);
+    if (!state) {
+      res.status(404).json({ error: 'Document not found' });
+      return;
+    }
+    res.json(state);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/documents/:hash/retry — re-extract only the chunks that failed.
+router.post('/:hash/retry', requireAI, retryLimit, async (req, res, next) => {
+  try {
+    const hash = String(req.params.hash);
+    if (!HASH_RE.test(hash)) {
+      res.status(400).json({ error: 'Invalid document id' });
+      return;
+    }
+    await retryFailedChunks(hash);
+    const state = await getDocumentState(hash);
+    if (!state) {
+      res.status(404).json({ error: 'Document not found' });
+      return;
+    }
+    res.json(state);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/documents/:hash — remove from this browser's list. The extracted
+// data stays, so uploading the same PDF again is instant and free.
+router.delete('/:hash', requireClientId, async (req, res, next) => {
+  try {
+    await getRepository().unlinkClient(res.locals.clientId, String(req.params.hash));
+    res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+});
+
+export { router as documentsRouter };
