@@ -1,5 +1,8 @@
 import { getClientId } from '../lib/clientId';
 import type {
+  ActiveQuiz,
+  QuestionStat,
+  QuizMode,
   ClientDocument,
   DocumentState,
   EvaluateResponse,
@@ -73,14 +76,54 @@ export async function importDocument(code: string): Promise<DocumentState> {
 
 export async function startQuizSession(
   pairs: QAPair[],
+  quizMode: QuizMode = 'voice',
 ): Promise<{ sessionId: string; currentIndex: number; question: string; totalCount: number }> {
-  const res = await fetch('/api/quiz/start', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pairs }),
-  });
+  const res = await fetch(
+    '/api/quiz/start',
+    withClientId({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pairs, quizMode }),
+    }),
+  );
   if (!res.ok) throw new Error('Failed to start quiz session');
   return res.json();
+}
+
+/** This browser's unfinished quiz (saved on the server), or null. */
+export async function getActiveQuiz(): Promise<ActiveQuiz | null> {
+  const res = await fetch('/api/quiz/active', withClientId());
+  if (res.status === 404) return null;
+  return jsonOrThrow(res, 'Could not load quiz in progress');
+}
+
+export async function discardQuiz(sessionId: string): Promise<void> {
+  await fetch(`/api/quiz/session/${sessionId}`, withClientId({ method: 'DELETE' }));
+}
+
+export async function reextractDocument(hash: string): Promise<DocumentState> {
+  return jsonOrThrow(await fetch(`/api/documents/${hash}/reextract`, { method: 'POST' }), 'Could not re-process');
+}
+
+export async function fetchStats(): Promise<QuestionStat[]> {
+  return jsonOrThrow(await fetch('/api/stats', withClientId()), 'Could not load stats');
+}
+
+export async function clearServerStats(): Promise<void> {
+  const res = await fetch('/api/stats', withClientId({ method: 'DELETE' }));
+  if (!res.ok) throw new Error('Could not clear stats');
+}
+
+export async function importStats(stats: QuestionStat[]): Promise<void> {
+  const res = await fetch(
+    '/api/stats/import',
+    withClientId({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stats }),
+    }),
+  );
+  if (!res.ok) throw new Error('Could not import stats');
 }
 
 export async function fetchSession(sessionId: string): Promise<SessionResponse> {

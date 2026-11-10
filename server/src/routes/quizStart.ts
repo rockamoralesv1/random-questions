@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { createSession, getCurrentQuestion } from '../services/quizService';
+import { optionalClientId } from '../middleware/clientId';
 
 const router = Router();
 
@@ -15,9 +16,10 @@ const BodySchema = z.object({
       }),
     )
     .min(1),
+  quizMode: z.enum(['voice', 'flashcard']).optional(),
 });
 
-router.post('/', (req, res, next) => {
+router.post('/', optionalClientId, async (req, res, next) => {
   try {
     const parsed = BodySchema.safeParse(req.body);
     if (!parsed.success) {
@@ -25,7 +27,11 @@ router.post('/', (req, res, next) => {
       return;
     }
 
-    const session = createSession(parsed.data.pairs);
+    const session = await createSession(
+      parsed.data.pairs,
+      res.locals.clientId,
+      parsed.data.quizMode ?? 'voice',
+    );
     const current = getCurrentQuestion(session)!;
 
     res.json({

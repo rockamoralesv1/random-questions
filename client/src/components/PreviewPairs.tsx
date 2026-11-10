@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuizStore } from '../store/quizStore';
-import { startQuizSession, retryDocument } from '../api/quizApi';
+import { startQuizSession, retryDocument, reextractDocument } from '../api/quizApi';
 import { pollDocument, stopPolling } from '../lib/documentPoller';
 import { shareCodeFor, copyToClipboard } from '../lib/shareCode';
 import { SourceRef } from './SourceRef';
@@ -208,6 +208,26 @@ export function PreviewPairs() {
     }
   };
 
+  const handleReextract = async () => {
+    if (!doc) return;
+    const ok = window.confirm(
+      es
+        ? 'Se volverá a procesar todo el PDF con la IA (tiene costo). Las preguntas actuales se reemplazarán. ¿Continuar?'
+        : 'The whole PDF will be processed again by the AI (this costs money). Current questions will be replaced. Continue?',
+    );
+    if (!ok) return;
+    setIsRetrying(true);
+    try {
+      const state = await reextractDocument(doc.hash);
+      applyDocumentState(state, doc.fileName);
+      if (state.status === 'processing') pollDocument(doc.hash, doc.fileName);
+    } catch (err) {
+      setStartError((err as Error).message);
+    } finally {
+      setIsRetrying(false);
+    }
+  };
+
   const handleCopyShare = async () => {
     if (doc && (await copyToClipboard(shareCodeFor(doc.hash)))) {
       setCopied(true);
@@ -304,7 +324,7 @@ export function PreviewPairs() {
     // The server keeps going; reopening the bank later shows all of them.
     stopPolling();
     try {
-      const session = await startQuizSession(quizPairs);
+      const session = await startQuizSession(quizPairs, quizMode);
       setSession(session.sessionId, quizPairs, session.totalCount);
       setCurrentQuestion(session.currentIndex, session.question, session.totalCount);
       setView('quiz');
@@ -379,6 +399,18 @@ export function PreviewPairs() {
               <button onClick={() => void handleCopyShare()} className="text-blue-600 hover:underline">
                 {copied ? (es ? '¡Copiado!' : 'Copied!') : es ? 'Copiar' : 'Copy'}
               </button>
+              {doc.status !== 'processing' && (
+                <>
+                  {' · '}
+                  <button
+                    onClick={() => void handleReextract()}
+                    disabled={isRetrying}
+                    className="text-blue-600 hover:underline disabled:opacity-50"
+                  >
+                    {es ? 'Volver a procesar' : 'Re-process'}
+                  </button>
+                </>
+              )}
             </p>
           )}
         </div>

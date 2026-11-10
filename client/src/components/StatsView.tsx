@@ -1,32 +1,36 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuizStore } from '../store/quizStore';
-import { getStats, clearStats } from '../lib/statsStorage';
+import { loadStats, resetStats } from '../lib/statsStorage';
+import type { QuestionStat } from '../types';
 import { startQuizSession } from '../api/quizApi';
 import { translations } from '../i18n';
 import { SourceRef } from './SourceRef';
 
 export function StatsView() {
-  const { language, setSession, setCurrentQuestion, setView, reset } = useQuizStore();
+  const { language, quizMode, setSession, setCurrentQuestion, setView, reset } = useQuizStore();
   const tr = translations[language];
 
-  const [stats, setStats] = useState(() => getStats());
+  const [stats, setStats] = useState<QuestionStat[]>([]);
+
+  useEffect(() => {
+    void loadStats().then(setStats);
+  }, []);
   const [retrying, setRetrying] = useState(false);
 
   const wrongStats = stats.filter((s) => s.fails > 0);
 
   const handleClear = () => {
     if (window.confirm(tr.statsClearConfirm)) {
-      clearStats();
-      setStats([]);
+      void resetStats().then(() => setStats([])).catch(() => {});
     }
   };
 
   const handleRetryWrong = async () => {
     if (wrongStats.length === 0) return;
-    const pairs = wrongStats.map((s) => ({ question: s.question, answer: s.correctAnswer }));
+    const pairs = wrongStats.map((s) => ({ question: s.question, answer: s.correctAnswer, source: s.source ?? null }));
     setRetrying(true);
     try {
-      const session = await startQuizSession(pairs);
+      const session = await startQuizSession(pairs, quizMode);
       setSession(session.sessionId, pairs, session.totalCount);
       setCurrentQuestion(session.currentIndex, session.question, session.totalCount);
       setView('quiz');

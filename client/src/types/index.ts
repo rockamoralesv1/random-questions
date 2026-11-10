@@ -67,3 +67,25 @@ export interface ResultsResponse {
 
 export type AppView = 'upload' | 'preview' | 'quiz' | 'results' | 'stats';
 export type QuizMode = 'voice' | 'flashcard';
+
+/** GET /api/quiz/active — the unfinished quiz to offer "continue where you left off". */
+export interface ActiveQuiz {
+  sessionId: string;
+  quizMode: QuizMode;
+  currentIndex: number;
+  totalCount: number;
+  question: string;
+  /** In quiz order. */
+  pairs: QAPair[];
+  updatedAt: number;
+}
+
+/** GET /api/stats — attempts and fails per question. */
+export interface QuestionStat {
+  question: string;
+  correctAnswer: string;
+  source?: string | null;
+  attempts: number;
+  fails: number;
+  lastSeen: number;
+}

@@ -1,9 +1,10 @@
 import { randomUUID } from 'crypto';
-import type { QAPair, QuizSession } from '../types';
+import { getRepository, type QuizMode, type QuizSessionRow } from '../db';
+import type { QAPair, QuizAnswer } from '../types';
 
-// In-memory session store — replace with Redis for production
-const sessions = new Map<string, QuizSession>();
-const SESSION_TTL_MS = 60 * 60 * 1000; // 1 hour
+// Sessions live in the database, so they survive restarts and can be resumed
+// from any browser with the same personal code. Old ones are purged on boot.
+export const SESSION_RETENTION_DAYS = 90;
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -14,36 +15,42 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-export function createSession(pairs: QAPair[]): QuizSession {
-  const session: QuizSession = {
+/**
+ * Starts a quiz. With a client ID, it replaces that client's other unfinished
+ * quiz (there is one "continue where you left off" per browser).
+ */
+export async function createSession(
+  pairs: QAPair[],
+  clientId: string | null,
+  quizMode: QuizMode,
+): Promise<QuizSessionRow> {
+  const now = Date.now();
+  const session: QuizSessionRow = {
     id: randomUUID(),
+    clientId,
+    quizMode,
     pairs: shuffle(pairs),
     currentIndex: 0,
     answers: [],
-    createdAt: Date.now(),
+    createdAt: now,
+    updatedAt: now,
   };
-  sessions.set(session.id, session);
+  const repo = getRepository();
+  await repo.createQuizSession(session);
+  if (clientId) await repo.deleteUnfinishedQuizSessions(clientId, session.id);
   return session;
 }
 
-export function getSession(id: string): QuizSession {
-  const session = sessions.get(id);
+export async function getSession(id: string): Promise<QuizSessionRow> {
+  const session = await getRepository().getQuizSession(id);
   if (!session) {
     throw Object.assign(new Error('Session not found'), { status: 404 });
   }
-  if (Date.now() - session.createdAt > SESSION_TTL_MS) {
-    sessions.delete(id);
-    throw Object.assign(new Error('Session expired'), { status: 410 });
-  }
   return session;
 }
 
-export function deleteSession(id: string): void {
-  sessions.delete(id);
-}
-
 export function getCurrentQuestion(
-  session: QuizSession,
+  session: QuizSessionRow,
 ): { index: number; total: number; question: string } | null {
   if (session.currentIndex >= session.pairs.length) return null;
   return {
@@ -53,22 +60,35 @@ export function getCurrentQuestion(
   };
 }
 
-export function recordAnswer(
-  session: QuizSession,
-  userAnswer: string,
-  passed: boolean,
-  missingConcepts: string[],
-  feedback: string,
-): void {
+/**
+ * Records the answer to the current question and advances, and updates the
+ * client's per-question stats. Returns false if the session already moved on
+ * (e.g. a double submit) — nothing is recorded then.
+ */
+export async function recordAnswer(
+  session: QuizSessionRow,
+  result: Omit<QuizAnswer, 'question' | 'correctAnswer' | 'source'>,
+): Promise<boolean> {
   const pair = session.pairs[session.currentIndex];
-  session.answers.push({
+  const answer: QuizAnswer = {
     question: pair.question,
     correctAnswer: pair.answer,
     source: pair.source ?? null,
-    userAnswer,
-    passed,
-    missingConcepts,
-    feedback,
-  });
+    ...result,
+  };
+  const repo = getRepository();
+  const ok = await repo.recordQuizAnswer(session.id, session.currentIndex, answer);
+  if (!ok) return false;
+
+  session.answers.push(answer);
   session.currentIndex += 1;
+  if (session.clientId) {
+    await repo.recordQuestionStat(session.clientId, {
+      question: pair.question,
+      correctAnswer: pair.answer,
+      source: pair.source ?? null,
+      passed: result.passed,
+    });
+  }
+  return true;
 }

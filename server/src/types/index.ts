@@ -13,18 +13,12 @@ export interface GradingResult {
   feedback: string;
 }
 
-export interface QuizSession {
-  id: string;
-  pairs: QAPair[];
-  currentIndex: number;
-  answers: Array<{
-    question: string;
-    correctAnswer: string;
-    source?: string | null;
-    userAnswer: string;
-    passed: boolean;
-    missingConcepts: string[];
-    feedback: string;
-  }>;
-  createdAt: number;
+export interface QuizAnswer {
+  question: string;
+  correctAnswer: string;
+  source?: string | null;
+  userAnswer: string;
+  passed: boolean;
+  missingConcepts: string[];
+  feedback: string;
 }

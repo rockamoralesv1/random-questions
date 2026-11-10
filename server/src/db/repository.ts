@@ -1,4 +1,4 @@
-import type { QAPair } from '../types';
+import type { QAPair, QuizAnswer } from '../types';
 
 export type ChunkStatus = 'pending' | 'processing' | 'done' | 'failed';
 
@@ -18,6 +18,29 @@ export interface ClientDocumentRow {
   doneChunks: number;
   failedChunks: number;
   questionCount: number;
+}
+
+export type QuizMode = 'voice' | 'flashcard';
+
+export interface QuizSessionRow {
+  id: string;
+  clientId: string | null;
+  quizMode: QuizMode;
+  /** Questions in quiz order (already shuffled). */
+  pairs: QAPair[];
+  currentIndex: number;
+  answers: QuizAnswer[];
+  createdAt: number; // epoch ms
+  updatedAt: number;
+}
+
+export interface QuestionStatRow {
+  question: string;
+  correctAnswer: string;
+  source: string | null;
+  attempts: number;
+  fails: number;
+  lastSeen: number; // epoch ms
 }
 
 /**
@@ -53,4 +76,32 @@ export interface Repository {
   linkClient(clientId: string, hash: string, fileName: string): Promise<void>;
   unlinkClient(clientId: string, hash: string): Promise<void>;
   listClientDocuments(clientId: string): Promise<ClientDocumentRow[]>;
+
+  // ── Quiz sessions ──────────────────────────────────────────────────────────
+  createQuizSession(session: QuizSessionRow): Promise<void>;
+  getQuizSession(id: string): Promise<QuizSessionRow | null>;
+  /**
+   * Appends an answer and advances, only if the session is still at
+   * `expectedIndex` (so a double submit can't record twice). Returns false
+   * when it wasn't.
+   */
+  recordQuizAnswer(id: string, expectedIndex: number, answer: QuizAnswer): Promise<boolean>;
+  /** The client's most recently used unfinished session. */
+  getActiveQuizSession(clientId: string): Promise<QuizSessionRow | null>;
+  /** Deletes the client's unfinished sessions, except `keepId`. */
+  deleteUnfinishedQuizSessions(clientId: string, keepId?: string): Promise<void>;
+  deleteQuizSession(id: string): Promise<void>;
+  /** Deletes sessions not touched in `days` days. */
+  purgeQuizSessions(days: number): Promise<number>;
+
+  // ── Per-question stats ─────────────────────────────────────────────────────
+  /** Adds one attempt for the question (and a fail when !passed). */
+  recordQuestionStat(
+    clientId: string,
+    stat: { question: string; correctAnswer: string; source: string | null; passed: boolean },
+  ): Promise<void>;
+  /** Adds stats imported from the browser; questions already on the server are skipped. */
+  importQuestionStats(clientId: string, stats: QuestionStatRow[]): Promise<void>;
+  listQuestionStats(clientId: string): Promise<QuestionStatRow[]>;
+  clearQuestionStats(clientId: string): Promise<void>;
 }

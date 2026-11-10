@@ -1,6 +1,40 @@
 import { Pool } from 'pg';
-import type { QAPair } from '../types';
-import type { ChunkRow, ChunkStatus, ClientDocumentRow, Repository } from './repository';
+import type { QAPair, QuizAnswer } from '../types';
+import type {
+  ChunkRow,
+  ChunkStatus,
+  ClientDocumentRow,
+  QuestionStatRow,
+  QuizSessionRow,
+  Repository,
+} from './repository';
+import { questionKey } from './questionKey';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toSession(row: any): QuizSessionRow {
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    quizMode: row.quiz_mode,
+    pairs: row.pairs,
+    currentIndex: row.current_index,
+    answers: row.answers,
+    createdAt: new Date(row.created_at).getTime(),
+    updatedAt: new Date(row.updated_at).getTime(),
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toStat(row: any): QuestionStatRow {
+  return {
+    question: row.question,
+    correctAnswer: row.correct_answer,
+    source: row.source,
+    attempts: row.attempts,
+    fails: row.fails,
+    lastSeen: new Date(row.last_seen).getTime(),
+  };
+}
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS documents (
@@ -30,6 +64,33 @@ CREATE TABLE IF NOT EXISTS client_documents (
   file_name  TEXT NOT NULL,
   saved_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (client_id, hash)
+);
+
+-- A quiz in progress or finished. pairs are stored in quiz (shuffled) order;
+-- answers grows by one element per question answered.
+CREATE TABLE IF NOT EXISTS quiz_sessions (
+  id             TEXT PRIMARY KEY,
+  client_id      TEXT,
+  quiz_mode      TEXT  NOT NULL DEFAULT 'voice',
+  pairs          JSONB NOT NULL,
+  current_index  INT   NOT NULL DEFAULT 0,
+  answers        JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS quiz_sessions_client_idx ON quiz_sessions (client_id, updated_at DESC);
+
+-- Attempts and fails per question, per browser (personal code).
+CREATE TABLE IF NOT EXISTS question_stats (
+  client_id       TEXT NOT NULL,
+  question_key    TEXT NOT NULL,
+  question        TEXT NOT NULL,
+  correct_answer  TEXT NOT NULL,
+  source          TEXT,
+  attempts        INT  NOT NULL DEFAULT 0,
+  fails           INT  NOT NULL DEFAULT 0,
+  last_seen       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (client_id, question_key)
 );
 `;
 
@@ -211,5 +272,114 @@ export class PostgresRepository implements Repository {
       failedChunks: row.failed_chunks,
       questionCount: row.question_count,
     }));
+  }
+
+  // ── Quiz sessions ──────────────────────────────────────────────────────────
+
+  async createQuizSession(s: QuizSessionRow): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO quiz_sessions (id, client_id, quiz_mode, pairs, current_index, answers)
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6::jsonb)`,
+      [s.id, s.clientId, s.quizMode, JSON.stringify(s.pairs), s.currentIndex, JSON.stringify(s.answers)],
+    );
+  }
+
+  async getQuizSession(id: string): Promise<QuizSessionRow | null> {
+    const r = await this.pool.query('SELECT * FROM quiz_sessions WHERE id = $1', [id]);
+    return r.rows[0] ? toSession(r.rows[0]) : null;
+  }
+
+  async recordQuizAnswer(id: string, expectedIndex: number, answer: QuizAnswer): Promise<boolean> {
+    const r = await this.pool.query(
+      `UPDATE quiz_sessions
+          SET answers = answers || jsonb_build_array($3::jsonb),
+              current_index = current_index + 1,
+              updated_at = now()
+        WHERE id = $1 AND current_index = $2`,
+      [id, expectedIndex, JSON.stringify(answer)],
+    );
+    return (r.rowCount ?? 0) > 0;
+  }
+
+  async getActiveQuizSession(clientId: string): Promise<QuizSessionRow | null> {
+    const r = await this.pool.query(
+      `SELECT * FROM quiz_sessions
+        WHERE client_id = $1 AND current_index < jsonb_array_length(pairs)
+        ORDER BY updated_at DESC LIMIT 1`,
+      [clientId],
+    );
+    return r.rows[0] ? toSession(r.rows[0]) : null;
+  }
+
+  async deleteUnfinishedQuizSessions(clientId: string, keepId?: string): Promise<void> {
+    await this.pool.query(
+      `DELETE FROM quiz_sessions
+        WHERE client_id = $1 AND id <> COALESCE($2, '')
+          AND current_index < jsonb_array_length(pairs)`,
+      [clientId, keepId ?? null],
+    );
+  }
+
+  async deleteQuizSession(id: string): Promise<void> {
+    await this.pool.query('DELETE FROM quiz_sessions WHERE id = $1', [id]);
+  }
+
+  async purgeQuizSessions(days: number): Promise<number> {
+    const r = await this.pool.query(
+      `DELETE FROM quiz_sessions WHERE updated_at < now() - make_interval(days => $1)`,
+      [days],
+    );
+    return r.rowCount ?? 0;
+  }
+
+  // ── Per-question stats ─────────────────────────────────────────────────────
+
+  async recordQuestionStat(
+    clientId: string,
+    stat: { question: string; correctAnswer: string; source: string | null; passed: boolean },
+  ): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO question_stats
+              (client_id, question_key, question, correct_answer, source, attempts, fails, last_seen)
+       VALUES ($1, $2, $3, $4, $5, 1, $6, now())
+       ON CONFLICT (client_id, question_key) DO UPDATE SET
+         correct_answer = EXCLUDED.correct_answer,
+         source = COALESCE(EXCLUDED.source, question_stats.source),
+         attempts = question_stats.attempts + 1,
+         fails = question_stats.fails + EXCLUDED.fails,
+         last_seen = now()`,
+      [clientId, questionKey(stat.question), stat.question, stat.correctAnswer, stat.source, stat.passed ? 0 : 1],
+    );
+  }
+
+  async importQuestionStats(clientId: string, stats: QuestionStatRow[]): Promise<void> {
+    if (stats.length === 0) return;
+    await this.pool.query(
+      `INSERT INTO question_stats
+              (client_id, question_key, question, correct_answer, source, attempts, fails, last_seen)
+       SELECT $1, k, q, a, s, at, f, to_timestamp(ls / 1000.0)
+         FROM unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::int[], $7::int[], $8::float8[])
+              AS u(k, q, a, s, at, f, ls)
+       ON CONFLICT (client_id, question_key) DO NOTHING`,
+      [
+        clientId,
+        stats.map((s) => questionKey(s.question)),
+        stats.map((s) => s.question),
+        stats.map((s) => s.correctAnswer),
+        stats.map((s) => s.source),
+        stats.map((s) => s.attempts),
+        stats.map((s) => s.fails),
+        stats.map((s) => s.lastSeen),
+      ],
+    );
+  }
+
+  async listQuestionStats(clientId: string): Promise<QuestionStatRow[]> {
+    const r = await this.pool.query('SELECT * FROM question_stats WHERE client_id = $1', [clientId]);
+    return r.rows.map(toStat);
+  }
+
+  async clearQuestionStats(clientId: string): Promise<void> {
+    await this.pool.query('DELETE FROM question_stats WHERE client_id = $1', [clientId]);
   }
 }

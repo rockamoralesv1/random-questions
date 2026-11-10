@@ -7,6 +7,7 @@ import { apiLimit } from './middleware/rateLimit';
 import { isAIEnabled } from './ai';
 import { uploadRouter } from './routes/upload';
 import { documentsRouter } from './routes/documents';
+import { statsRouter } from './routes/stats';
 import { quizRouter } from './routes/quiz';
 import { quizStartRouter } from './routes/quizStart';
 import { evaluateRouter } from './routes/evaluate';
@@ -26,6 +27,7 @@ app.use('/api', apiLimit);
 
 app.use('/api/upload', uploadRouter);
 app.use('/api/documents', documentsRouter);
+app.use('/api/stats', statsRouter);
 app.use('/api/quiz/start', quizStartRouter);
 app.use('/api/quiz', quizRouter);
 app.use('/api/evaluate', evaluateRouter);

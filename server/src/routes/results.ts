@@ -3,9 +3,9 @@ import { getSession } from '../services/quizService';
 
 const router = Router();
 
-router.get('/:sessionId', (req, res, next) => {
+router.get('/:sessionId', async (req, res, next) => {
   try {
-    const session = getSession(req.params.sessionId);
+    const session = await getSession(req.params.sessionId);
     const passed = session.answers.filter((a) => a.passed).length;
 
     res.json({

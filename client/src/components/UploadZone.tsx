@@ -2,13 +2,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import {
   uploadPDF,
-  fetchSession,
   startQuizSession,
   getDocument,
   listDocuments,
   removeDocument,
   importDocument,
   getServerConfig,
+  getActiveQuiz,
+  discardQuiz,
 } from '../api/quizApi';
 import { useQuizStore } from '../store/quizStore';
 import { translations } from '../i18n';
@@ -22,7 +23,10 @@ import { getDraftSession, clearDraftSession, type DraftSession } from '../lib/dr
 import { getClientId, normalizePersonalCode, setClientId } from '../lib/clientId';
 import { pollDocument } from '../lib/documentPoller';
 import { shareCodeFor, copyToClipboard } from '../lib/shareCode';
-import type { ClientDocument, DocumentState, QAPair } from '../types';
+import type { ActiveQuiz, ClientDocument, DocumentState, QAPair } from '../types';
+
+/** Quiz to resume: saved on the server, or a legacy one from localStorage. */
+type ResumableQuiz = { kind: 'server'; quiz: ActiveQuiz } | { kind: 'local'; draft: DraftSession };
 
 /** A row in "Recent documents": a server bank, or a legacy browser-only one. */
 type RecentDoc =
@@ -35,7 +39,7 @@ export function UploadZone() {
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recent, setRecent] = useState<RecentDoc[]>([]);
-  const [draft, setDraft] = useState<DraftSession | null>(null);
+  const [draft, setDraft] = useState<ResumableQuiz | null>(null);
   const [isResuming, setIsResuming] = useState(false);
   const [codeInput, setCodeInput] = useState('');
   const [codeMsg, setCodeMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -66,48 +70,56 @@ export function UploadZone() {
 
   useEffect(() => {
     void refreshRecent();
-    setDraft(getDraftSession());
+    let cancelled = false;
+    getActiveQuiz()
+      .catch(() => null)
+      .then((quiz) => {
+        if (cancelled) return;
+        if (quiz) return setDraft({ kind: 'server', quiz });
+        const local = getDraftSession(); // saved before quizzes moved to the server
+        setDraft(local ? { kind: 'local', draft: local } : null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [refreshRecent, clientId]);
 
   const handleResume = useCallback(async () => {
     if (!draft) return;
     setIsResuming(true);
     try {
-      // Try to reattach to the existing server session
-      try {
-        const serverSession = await fetchSession(draft.sessionId);
-        if (!serverSession.done && serverSession.question && serverSession.currentIndex !== undefined) {
-          setSession(draft.sessionId, draft.pairs, serverSession.totalCount);
-          setCurrentQuestion(serverSession.currentIndex, serverSession.question, serverSession.totalCount);
-          setQuizMode(draft.quizMode);
-          setView('quiz');
-          setDraft(null);
-          return;
-        }
-      } catch {
-        // Server session expired — fall through to restart with remaining pairs
+      if (draft.kind === 'server') {
+        const { quiz } = draft;
+        setSession(quiz.sessionId, quiz.pairs, quiz.totalCount);
+        setCurrentQuestion(quiz.currentIndex, quiz.question, quiz.totalCount);
+        setQuizMode(quiz.quizMode);
+        setView('quiz');
+        return;
       }
 
-      // Server session gone: start fresh with only the remaining questions
-      const remainingPairs = draft.pairs.slice(draft.currentIndex);
+      // Legacy localStorage draft: its in-memory server session is gone after
+      // the move to the database, so start a new (saved) quiz with the
+      // questions that were left.
+      const local = draft.draft;
+      clearDraftSession();
+      const remainingPairs = local.pairs.slice(local.currentIndex);
       if (remainingPairs.length === 0) {
-        clearDraftSession();
         setDraft(null);
         return;
       }
-      const session = await startQuizSession(remainingPairs);
+      const session = await startQuizSession(remainingPairs, local.quizMode);
       setSession(session.sessionId, remainingPairs, session.totalCount);
       setCurrentQuestion(session.currentIndex, session.question, session.totalCount);
-      setQuizMode(draft.quizMode);
+      setQuizMode(local.quizMode);
       setView('quiz');
-      setDraft(null);
     } catch {
       setIsResuming(false);
     }
   }, [draft, setSession, setCurrentQuestion, setQuizMode, setView]);
 
   const handleDismissDraft = () => {
-    clearDraftSession();
+    if (draft?.kind === 'server') void discardQuiz(draft.quiz.sessionId);
+    else clearDraftSession();
     setDraft(null);
   };
 
@@ -223,10 +235,15 @@ export function UploadZone() {
                 <div>
                   <p className="text-sm font-semibold text-amber-800">{tr.resumeTitle}</p>
                   <p className="text-xs text-amber-700 mt-0.5">
-                    {tr.resumeProgress(draft.currentIndex, draft.totalCount)}
+                    {draft.kind === 'server'
+                      ? tr.resumeProgress(draft.quiz.currentIndex, draft.quiz.totalCount)
+                      : tr.resumeProgress(draft.draft.currentIndex, draft.draft.totalCount)}
                   </p>
                   <p className="text-xs text-amber-500 mt-0.5">
-                    {formatRelativeTime(draft.savedAt, language)}
+                    {formatRelativeTime(
+                      draft.kind === 'server' ? draft.quiz.updatedAt : draft.draft.savedAt,
+                      language,
+                    )}
                   </p>
                 </div>
               </div>

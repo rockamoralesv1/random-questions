@@ -1,4 +1,5 @@
-import type { ResultsResponse } from '../types';
+import type { QuestionStat as ServerQuestionStat } from '../types';
+import { fetchStats, importStats, clearServerStats } from '../api/quizApi';
 
 const STATS_KEY = 'quiz_stats';
 
@@ -32,30 +33,33 @@ export function getStats(): QuestionStat[] {
   });
 }
 
-export function recordResults(details: ResultsResponse['details']): void {
-  const store = getStatsStore();
-  const now = Date.now();
-  for (const d of details) {
-    const existing = store[d.question] ?? {
-      question: d.question,
-      correctAnswer: d.correctAnswer,
-      attempts: 0,
-      fails: 0,
-      lastSeen: 0,
-    };
-    if (d.source) existing.source = d.source;
-    existing.attempts += 1;
-    if (!d.passed) existing.fails += 1;
-    existing.lastSeen = now;
-    store[d.question] = existing;
+export function clearStats(): void {
+  localStorage.removeItem(STATS_KEY);
+}
+
+// ── Server-backed stats ──────────────────────────────────────────────────────
+// Stats now live in the database (recorded as each answer is graded). The
+// functions above remain only to migrate what older versions kept locally.
+
+/** Loads stats from the server, first uploading (once) any kept in this browser. */
+export async function loadStats(): Promise<ServerQuestionStat[]> {
+  const local = getStats();
+  if (local.length > 0) {
+    try {
+      await importStats(local);
+      clearStats();
+    } catch {
+      return local; // server unavailable — show what this browser has
+    }
   }
   try {
-    localStorage.setItem(STATS_KEY, JSON.stringify(store));
+    return await fetchStats();
   } catch {
-    // QuotaExceededError — silently skip
+    return local;
   }
 }
 
-export function clearStats(): void {
-  localStorage.removeItem(STATS_KEY);
+export async function resetStats(): Promise<void> {
+  await clearServerStats();
+  clearStats();
 }

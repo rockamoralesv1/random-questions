@@ -135,7 +135,12 @@ GET    /api/documents/:hash     → { status, totalChunks, completedChunks, fail
 POST   /api/documents/:hash/retry  → re-extract failed chunks
 POST   /api/documents/import    → { code } adds a shared bank
 DELETE /api/documents/:hash     → remove from this browser's list
+POST   /api/documents/:hash/reextract → discard and re-extract the whole PDF
 GET    /api/config              → { aiEnabled }
+POST   /api/quiz/start          → { pairs, quizMode } (X-Client-Id optional) — saved in quiz_sessions
+GET    /api/quiz/active         → this browser's unfinished quiz ("continue where you left off")
+GET/DELETE /api/stats           → per-question attempts/fails (recorded on each graded answer)
+POST   /api/stats/import        → one-time upload of legacy localStorage stats
 GET    /api/quiz/session/:id    → { currentIndex, totalCount, question }
 POST   /api/evaluate            → { passed, correctAnswer, missingConcepts, feedback, next }
 GET    /api/quiz/results/:id    → { totalQuestions, passed, failed, details[] }
@@ -150,4 +155,4 @@ GET    /api/tts/available       → { available: boolean }
 - **Scanned PDFs**: `pdf-parse` only works on text-layer PDFs. Detect failure if < 100 chars extracted and return a clear error.
 - **GPT extraction errors**: Show users a preview of extracted Q&A pairs before starting the quiz so they can remove bad parses.
 - **Autoplay policy**: `tts.speak()` from server tier must be triggered within a user gesture, not a `useEffect`.
-- **Session storage**: In-memory `Map` for MVP. Use `connect-redis` with 1-hour TTL for production.
+- **Session storage**: Quiz sessions and per-question stats are in Postgres (`quiz_sessions`, `question_stats`), keyed by the personal code; sessions unused for 90 days are purged on boot.

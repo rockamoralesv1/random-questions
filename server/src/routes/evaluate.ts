@@ -23,7 +23,7 @@ router.post('/', evaluateLimit, async (req, res, next) => {
     }
 
     const { sessionId, questionIndex, userAnswer, selfAssess } = parsed.data;
-    const session = getSession(sessionId);
+    const session = await getSession(sessionId);
     const current = getCurrentQuestion(session);
 
     if (!current || current.index !== questionIndex) {
@@ -43,7 +43,17 @@ router.post('/', evaluateLimit, async (req, res, next) => {
       result = await evaluateAnswer(current.question, correctAnswer, userAnswer);
     }
 
-    recordAnswer(session, userAnswer, result.passed, result.missingConcepts, result.feedback);
+    const recorded = await recordAnswer(session, {
+      userAnswer,
+      passed: result.passed,
+      missingConcepts: result.missingConcepts,
+      feedback: result.feedback,
+    });
+    if (!recorded) {
+      // Another submit for this question got there first
+      res.status(409).json({ error: 'Question index mismatch' });
+      return;
+    }
 
     const next = getCurrentQuestion(session);
 

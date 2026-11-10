@@ -1,5 +1,16 @@
-import type { QAPair } from '../types';
-import type { ChunkRow, ChunkStatus, ClientDocumentRow, Repository } from './repository';
+import type { QAPair, QuizAnswer } from '../types';
+import type {
+  ChunkRow,
+  ChunkStatus,
+  ClientDocumentRow,
+  QuestionStatRow,
+  QuizSessionRow,
+  Repository,
+} from './repository';
+import { questionKey } from './questionKey';
+
+const clone = <T>(v: T): T => structuredClone(v);
+const isUnfinished = (s: QuizSessionRow) => s.currentIndex < s.pairs.length;
 
 /** In-process repository for local development and tests (no DATABASE_URL). */
 export class MemoryRepository implements Repository {
@@ -7,6 +18,8 @@ export class MemoryRepository implements Repository {
   private names = new Map<string, string>();
   private versions = new Map<string, number>();
   private links = new Map<string, Map<string, { fileName: string; savedAt: number }>>();
+  private sessions = new Map<string, QuizSessionRow>();
+  private stats = new Map<string, Map<string, QuestionStatRow>>();
 
   async init(): Promise<void> {}
 
@@ -104,5 +117,100 @@ export class MemoryRepository implements Repository {
         };
       })
       .sort((a, b) => b.savedAt - a.savedAt);
+  }
+
+  // ── Quiz sessions ──────────────────────────────────────────────────────────
+
+  async createQuizSession(session: QuizSessionRow): Promise<void> {
+    this.sessions.set(session.id, clone(session));
+  }
+
+  async getQuizSession(id: string): Promise<QuizSessionRow | null> {
+    const s = this.sessions.get(id);
+    return s ? clone(s) : null;
+  }
+
+  async recordQuizAnswer(id: string, expectedIndex: number, answer: QuizAnswer): Promise<boolean> {
+    const s = this.sessions.get(id);
+    if (!s || s.currentIndex !== expectedIndex) return false;
+    s.answers.push(clone(answer));
+    s.currentIndex += 1;
+    s.updatedAt = Date.now();
+    return true;
+  }
+
+  async getActiveQuizSession(clientId: string): Promise<QuizSessionRow | null> {
+    const active = [...this.sessions.values()]
+      .filter((s) => s.clientId === clientId && isUnfinished(s))
+      .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    return active ? clone(active) : null;
+  }
+
+  async deleteUnfinishedQuizSessions(clientId: string, keepId?: string): Promise<void> {
+    for (const [id, s] of this.sessions) {
+      if (s.clientId === clientId && id !== keepId && isUnfinished(s)) this.sessions.delete(id);
+    }
+  }
+
+  async deleteQuizSession(id: string): Promise<void> {
+    this.sessions.delete(id);
+  }
+
+  async purgeQuizSessions(days: number): Promise<number> {
+    const cutoff = Date.now() - days * 86_400_000;
+    let n = 0;
+    for (const [id, s] of this.sessions) {
+      if (s.updatedAt < cutoff) {
+        this.sessions.delete(id);
+        n++;
+      }
+    }
+    return n;
+  }
+
+  // ── Per-question stats ─────────────────────────────────────────────────────
+
+  private statsFor(clientId: string): Map<string, QuestionStatRow> {
+    const m = this.stats.get(clientId) ?? new Map<string, QuestionStatRow>();
+    this.stats.set(clientId, m);
+    return m;
+  }
+
+  async recordQuestionStat(
+    clientId: string,
+    stat: { question: string; correctAnswer: string; source: string | null; passed: boolean },
+  ): Promise<void> {
+    const m = this.statsFor(clientId);
+    const key = questionKey(stat.question);
+    const row = m.get(key) ?? {
+      question: stat.question,
+      correctAnswer: stat.correctAnswer,
+      source: null,
+      attempts: 0,
+      fails: 0,
+      lastSeen: 0,
+    };
+    row.correctAnswer = stat.correctAnswer;
+    if (stat.source) row.source = stat.source;
+    row.attempts += 1;
+    if (!stat.passed) row.fails += 1;
+    row.lastSeen = Date.now();
+    m.set(key, row);
+  }
+
+  async importQuestionStats(clientId: string, stats: QuestionStatRow[]): Promise<void> {
+    const m = this.statsFor(clientId);
+    for (const s of stats) {
+      const key = questionKey(s.question);
+      if (!m.has(key)) m.set(key, clone(s));
+    }
+  }
+
+  async listQuestionStats(clientId: string): Promise<QuestionStatRow[]> {
+    return [...(this.stats.get(clientId)?.values() ?? [])].map(clone);
+  }
+
+  async clearQuestionStats(clientId: string): Promise<void> {
+    this.stats.delete(clientId);
   }
 }

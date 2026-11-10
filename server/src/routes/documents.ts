@@ -1,7 +1,13 @@
 import { Router } from 'express';
 import { getRepository } from '../db';
 import { requireAI } from '../ai';
-import { getDocumentState, retryFailedChunks } from '../services/extractionService';
+import {
+  EXTRACTION_VERSION,
+  getDocumentState,
+  isExtractionRunning,
+  retryFailedChunks,
+  startExtraction,
+} from '../services/extractionService';
 import { requireClientId } from '../middleware/clientId';
 import { importLimit, retryLimit } from '../middleware/rateLimit';
 
@@ -81,6 +87,32 @@ router.post('/:hash/retry', requireAI, retryLimit, async (req, res, next) => {
       return;
     }
     res.json(state);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/documents/:hash/reextract — throw away the extracted questions
+// and process the whole PDF again with the current extraction prompt.
+router.post('/:hash/reextract', requireAI, retryLimit, async (req, res, next) => {
+  try {
+    const hash = String(req.params.hash);
+    if (!HASH_RE.test(hash)) {
+      res.status(400).json({ error: 'Invalid document id' });
+      return;
+    }
+    const repo = getRepository();
+    if (!(await repo.documentExists(hash))) {
+      res.status(404).json({ error: 'Document not found' });
+      return;
+    }
+    if (isExtractionRunning(hash)) {
+      res.status(409).json({ error: 'This PDF is still being processed' });
+      return;
+    }
+    await repo.resetDocument(hash, EXTRACTION_VERSION);
+    startExtraction(hash);
+    res.json(await getDocumentState(hash));
   } catch (err) {
     next(err);
   }

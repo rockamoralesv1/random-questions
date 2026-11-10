@@ -16,3 +16,10 @@ export const requireClientId: RequestHandler = (req, res, next) => {
   res.locals.clientId = id;
   next();
 };
+
+/** Like requireClientId, but a missing/invalid header just leaves it null. */
+export const optionalClientId: RequestHandler = (req, res, next) => {
+  const id = req.header('X-Client-Id');
+  res.locals.clientId = id && CLIENT_ID_RE.test(id) ? id : null;
+  next();
+};

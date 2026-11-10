@@ -2,7 +2,15 @@ import { MemoryRepository } from './memoryRepository';
 import { PostgresRepository } from './postgresRepository';
 import type { Repository } from './repository';
 
-export type { Repository, ChunkRow, ChunkStatus, ClientDocumentRow } from './repository';
+export type {
+  Repository,
+  ChunkRow,
+  ChunkStatus,
+  ClientDocumentRow,
+  QuizMode,
+  QuizSessionRow,
+  QuestionStatRow,
+} from './repository';
 
 let repo: Repository | null = null;
 

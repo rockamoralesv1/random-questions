@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useQuizStore } from '../store/quizStore';
 import { fetchResults, startQuizSession } from '../api/quizApi';
-import { recordResults } from '../lib/statsStorage';
 import { clearDraftSession } from '../lib/draftSession';
 import type { ResultsResponse } from '../types';
 import { translations } from '../i18n';
 import { SourceRef } from './SourceRef';
 
 export function ResultsView() {
-  const { sessionId, pairs, reset, language, setSession, setCurrentQuestion, setView } = useQuizStore();
+  const { sessionId, pairs, reset, language, quizMode, setSession, setCurrentQuestion, setView } = useQuizStore();
   const [results, setResults] = useState<ResultsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
@@ -19,7 +18,7 @@ export function ResultsView() {
     if (pairs.length === 0) return;
     setRestarting(true);
     try {
-      const session = await startQuizSession(pairs);
+      const session = await startQuizSession(pairs, quizMode);
       setSession(session.sessionId, pairs, session.totalCount);
       setCurrentQuestion(session.currentIndex, session.question, session.totalCount);
       setView('quiz');
@@ -32,11 +31,11 @@ export function ResultsView() {
     if (!results) return;
     const failedPairs = results.details
       .filter((d) => !d.passed)
-      .map((d) => ({ question: d.question, answer: d.correctAnswer }));
+      .map((d) => ({ question: d.question, answer: d.correctAnswer, source: d.source ?? null }));
     if (failedPairs.length === 0) return;
     setRetrying(true);
     try {
-      const session = await startQuizSession(failedPairs);
+      const session = await startQuizSession(failedPairs, quizMode);
       setSession(session.sessionId, failedPairs, session.totalCount);
       setCurrentQuestion(session.currentIndex, session.question, session.totalCount);
       setView('quiz');
@@ -48,7 +47,7 @@ export function ResultsView() {
   useEffect(() => {
     if (!sessionId) return;
     fetchResults(sessionId)
-      .then((r) => { recordResults(r.details); clearDraftSession(); setResults(r); })
+      .then((r) => { clearDraftSession(); setResults(r); })
       .catch((err: Error) => setError(err.message));
   }, [sessionId]);
 
