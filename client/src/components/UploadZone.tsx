@@ -6,7 +6,6 @@ import {
   getDocument,
   listDocuments,
   removeDocument,
-  importDocument,
   getServerConfig,
   getActiveQuiz,
   discardQuiz,
@@ -21,7 +20,6 @@ import {
 } from '../lib/storage';
 import { getDraftSession, clearDraftSession, type DraftSession } from '../lib/draftSession';
 import { pollDocument } from '../lib/documentPoller';
-import { shareCodeFor, copyToClipboard } from '../lib/shareCode';
 import type { ActiveQuiz, ClientDocument, DocumentRole, DocumentState, QAPair } from '../types';
 
 /** Quiz to resume: saved on the server, or a legacy one from localStorage. */
@@ -40,9 +38,6 @@ export function UploadZone() {
   const [recent, setRecent] = useState<RecentDoc[]>([]);
   const [draft, setDraft] = useState<ResumableQuiz | null>(null);
   const [isResuming, setIsResuming] = useState(false);
-  const [codeInput, setCodeInput] = useState('');
-  const [codeMsg, setCodeMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [copied, setCopied] = useState<string | null>(null);
   const [aiEnabled, setAiEnabled] = useState(true);
   const tr = translations[language];
   const es = language === 'es';
@@ -173,33 +168,6 @@ export function UploadZone() {
     void refreshRecent();
   };
 
-  const handleCopy = async (text: string, key: string, e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    if (await copyToClipboard(text)) {
-      setCopied(key);
-      setTimeout(() => setCopied((k) => (k === key ? null : k)), 1500);
-    }
-  };
-
-  // Share code of someone else's question bank (12+ hex characters).
-  const handleCode = async () => {
-    const input = codeInput.trim();
-    if (!input) return;
-    setCodeMsg(null);
-    if (!/^[0-9a-f]{12,64}$/i.test(input)) {
-      setCodeMsg({ ok: false, text: es ? 'Código no válido' : 'Invalid code' });
-      return;
-    }
-    try {
-      const state = await importDocument(input);
-      setCodeInput('');
-      await refreshRecent();
-      openDocument(state, '', 'shared');
-    } catch (err) {
-      setCodeMsg({ ok: false, text: (err as Error).message });
-    }
-  };
-
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: { 'application/pdf': ['.pdf'] },
     maxFiles: 1,
@@ -291,28 +259,6 @@ export function UploadZone() {
           </div>
         )}
 
-        {/* Load a question bank someone shared by code */}
-        <div className="mt-6 bg-white rounded-xl border border-gray-200 p-4 space-y-3">
-          <div className="flex gap-2">
-            <input
-              value={codeInput}
-              onChange={(e) => { setCodeInput(e.target.value); setCodeMsg(null); }}
-              onKeyDown={(e) => { if (e.key === 'Enter') void handleCode(); }}
-              placeholder={es ? 'Pega el código de un banco compartido' : 'Paste a shared bank code'}
-              className="flex-1 min-w-0 rounded-lg border border-gray-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400"
-            />
-            <button
-              onClick={() => void handleCode()}
-              className="px-4 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors shrink-0"
-            >
-              {es ? 'Cargar' : 'Load'}
-            </button>
-          </div>
-          {codeMsg && (
-            <p className={`text-xs ${codeMsg.ok ? 'text-green-600' : 'text-red-500'}`}>{codeMsg.text}</p>
-          )}
-        </div>
-
         {recent.length > 0 && (
           <div className="mt-8">
             <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
@@ -323,7 +269,6 @@ export function UploadZone() {
                 const count = doc.kind === 'server' ? doc.questionCount : doc.pairs.length;
                 const processing =
                   doc.kind === 'server' && doc.doneChunks + doc.failedChunks < doc.totalChunks;
-                const code = shareCodeFor(doc.hash);
                 return (
                   <div
                     key={doc.hash}
@@ -332,7 +277,14 @@ export function UploadZone() {
                   >
                     <span className="text-2xl shrink-0">📄</span>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-800 truncate">{doc.fileName}</p>
+                      <p className="text-sm font-medium text-gray-800 truncate">
+                        {doc.fileName}
+                        {doc.kind === 'server' && doc.role === 'shared' && (
+                          <span className="ml-2 text-[11px] font-normal text-indigo-500">
+                            {es ? 'compartido contigo' : 'shared with you'}
+                          </span>
+                        )}
+                      </p>
                       <p className="text-xs text-gray-400 mt-0.5">
                         {count} {es ? 'preguntas' : 'questions'}
                         {processing &&
@@ -346,15 +298,6 @@ export function UploadZone() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      {doc.kind === 'server' && (
-                        <button
-                          onClick={(e) => void handleCopy(code, doc.hash, e)}
-                          className="text-xs text-gray-400 hover:text-blue-600 transition-colors"
-                          title={es ? `Copiar código para compartir: ${code}` : `Copy share code: ${code}`}
-                        >
-                          {copied === doc.hash ? (es ? '¡Copiado!' : 'Copied!') : es ? 'Compartir' : 'Share'}
-                        </button>
-                      )}
                       <button
                         onClick={(e) => void handleDelete(doc, e)}
                         className="text-gray-300 hover:text-red-400 transition-colors text-lg leading-none"

@@ -8,15 +8,15 @@ import {
   retryFailedChunks,
   startExtraction,
 } from '../services/extractionService';
-import { importLimit, retryLimit } from '../middleware/rateLimit';
+import { retryLimit, shareLimit } from '../middleware/rateLimit';
+import { normalizeEmail } from '../services/authService';
 
 const router = Router();
 const HASH_RE = /^[a-f0-9]{64}$/;
 
 /**
- * Only a client that uploaded the PDF may spend AI on it again (retry or
- * re-process). Someone who imported it with a share code gets the full hash
- * too, so the hash alone must not be enough.
+ * Only the user who uploaded the PDF may spend AI on it again (retry or
+ * re-process) or decide who it is shared with.
  */
 const requireOwner: RequestHandler = async (req, res, next) => {
   try {
@@ -26,7 +26,7 @@ const requireOwner: RequestHandler = async (req, res, next) => {
       return;
     }
     if ((await getRepository().getClientRole(res.locals.clientId, hash)) !== 'owner') {
-      res.status(403).json({ error: 'Only the person who uploaded this PDF can re-process it.' });
+      res.status(403).json({ error: 'Only the person who uploaded this PDF can do this.' });
       return;
     }
     next();
@@ -44,35 +44,6 @@ router.get('/', async (_req, res, next) => {
   }
 });
 
-// POST /api/documents/import { code } — add a shared bank to this browser's
-// list. The share code is the first SHARE_CODE_LENGTH hex chars of the hash
-// (a full hash is accepted too).
-export const SHARE_CODE_LENGTH = 12;
-router.post('/import', importLimit, async (req, res, next) => {
-  try {
-    const code = String(req.body?.code ?? '').trim().toLowerCase();
-    if (!/^[a-f0-9]+$/.test(code) || code.length < SHARE_CODE_LENGTH || code.length > 64) {
-      res.status(400).json({ error: 'Invalid share code' });
-      return;
-    }
-    const repo = getRepository();
-    const matches = await repo.findHashesByPrefix(code, 2);
-    if (matches.length === 0) {
-      res.status(404).json({ error: 'No question bank found for that code' });
-      return;
-    }
-    if (matches.length > 1) {
-      res.status(409).json({ error: 'Ambiguous code — use a longer one' });
-      return;
-    }
-    const hash = matches[0];
-    await repo.linkClient(res.locals.clientId, hash, (await repo.getDocumentName(hash)) ?? 'PDF', 'shared');
-    res.json(await getDocumentState(hash));
-  } catch (err) {
-    next(err);
-  }
-});
-
 // GET /api/documents/:hash — extraction progress and the pairs extracted so far.
 // Polled by the client while status is 'processing'.
 router.get('/:hash', async (req, res, next) => {
@@ -82,7 +53,10 @@ router.get('/:hash', async (req, res, next) => {
       res.status(400).json({ error: 'Invalid document id' });
       return;
     }
-    const state = await getDocumentState(hash);
+    // Only the owner and the users it was shared with can see a bank.
+    // (404, not 403, so the response doesn't confirm the bank exists.)
+    const role = await getRepository().getClientRole(res.locals.clientId, hash);
+    const state = role ? await getDocumentState(hash) : null;
     if (!state) {
       res.status(404).json({ error: 'Document not found' });
       return;
@@ -134,6 +108,54 @@ router.post('/:hash/reextract', requireAI, retryLimit, requireOwner, async (req,
     await repo.resetDocument(hash, EXTRACTION_VERSION);
     startExtraction(hash);
     res.json(await getDocumentState(hash));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/documents/:hash/shares — who has access (owner only).
+router.get('/:hash/shares', requireOwner, async (req, res, next) => {
+  try {
+    res.json(await getRepository().listDocumentMembers(String(req.params.hash)));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/documents/:hash/shares { email } — share with an existing user (owner only).
+router.post('/:hash/shares', shareLimit, requireOwner, async (req, res, next) => {
+  try {
+    const hash = String(req.params.hash);
+    const email = normalizeEmail(String(req.body?.email ?? ''));
+    const repo = getRepository();
+    const user = email ? await repo.getUserByEmail(email) : null;
+    if (!user) {
+      res.status(404).json({ error: 'There is no user with that email on the platform.' });
+      return;
+    }
+    if (user.id === res.locals.userId) {
+      res.status(400).json({ error: 'You already own this question bank.' });
+      return;
+    }
+    await repo.linkClient(user.id, hash, (await repo.getDocumentName(hash)) ?? 'PDF', 'shared');
+    res.status(201).json(await repo.listDocumentMembers(hash));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/documents/:hash/shares/:userId — stop sharing with a user (owner only).
+router.delete('/:hash/shares/:userId', requireOwner, async (req, res, next) => {
+  try {
+    const hash = String(req.params.hash);
+    const userId = String(req.params.userId);
+    const repo = getRepository();
+    if ((await repo.getClientRole(userId, hash)) !== 'shared') {
+      res.status(404).json({ error: 'That user does not have shared access.' });
+      return;
+    }
+    await repo.unlinkClient(userId, hash);
+    res.json(await repo.listDocumentMembers(hash));
   } catch (err) {
     next(err);
   }

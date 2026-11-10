@@ -62,8 +62,8 @@ export const uploadLimit = makeRateLimit({
 /** Re-extracting failed chunks also calls the AI. */
 export const retryLimit = makeRateLimit({ windowMs: HOUR, max: 20 });
 
-/** Share-code lookups — limited to make guessing codes impractical. */
-export const importLimit = makeRateLimit({ windowMs: 15 * MINUTE, max: 30 });
+/** Sharing banks with other users (also checks whether an email has an account). */
+export const shareLimit = makeRateLimit({ windowMs: 15 * MINUTE, max: 30 });
 
 /** Starting quizzes — each stores its questions in the database. */
 export const quizStartLimit = makeRateLimit({ windowMs: 10 * MINUTE, max: 30 });

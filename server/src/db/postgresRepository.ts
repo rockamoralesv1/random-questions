@@ -4,6 +4,7 @@ import type {
   ChunkRow,
   ChunkStatus,
   ClientDocumentRow,
+  DocumentMemberRow,
   DocumentRole,
   QuestionStatRow,
   QuizSessionRow,
@@ -226,15 +227,6 @@ export class PostgresRepository implements Repository {
     }
   }
 
-  async findHashesByPrefix(prefix: string, limit: number): Promise<string[]> {
-    // One row per uploaded PDF, so a scan is cheap at this app's scale.
-    const r = await this.pool.query(
-      `SELECT hash FROM documents WHERE hash LIKE $1 || '%' ORDER BY hash LIMIT $2`,
-      [prefix, limit],
-    );
-    return r.rows.map((row) => row.hash);
-  }
-
   async getDocumentName(hash: string): Promise<string | null> {
     const r = await this.pool.query('SELECT file_name FROM documents WHERE hash = $1', [hash]);
     return r.rows[0]?.file_name ?? null;
@@ -304,6 +296,22 @@ export class PostgresRepository implements Repository {
          role = CASE WHEN client_documents.role = 'owner' THEN 'owner' ELSE EXCLUDED.role END`,
       [clientId, hash, fileName, role],
     );
+  }
+
+  async listDocumentMembers(hash: string): Promise<DocumentMemberRow[]> {
+    const r = await this.pool.query(
+      `SELECT u.id, u.email, cd.role, cd.saved_at
+         FROM client_documents cd JOIN users u ON u.id = cd.client_id
+        WHERE cd.hash = $1
+        ORDER BY cd.saved_at`,
+      [hash],
+    );
+    return r.rows.map((row) => ({
+      userId: row.id,
+      email: row.email,
+      role: row.role,
+      addedAt: new Date(row.saved_at).getTime(),
+    }));
   }
 
   async getClientRole(clientId: string, hash: string): Promise<DocumentRole | null> {

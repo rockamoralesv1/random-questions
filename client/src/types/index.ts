@@ -26,6 +26,14 @@ export interface DocumentState {
 /** 'owner': uploaded the PDF (can re-process it); 'shared': imported by code. */
 export type DocumentRole = 'owner' | 'shared';
 
+/** Someone with access to a bank (GET /api/documents/:hash/shares). */
+export interface DocumentMember {
+  userId: string;
+  email: string;
+  role: DocumentRole;
+  addedAt: number;
+}
+
 export interface ClientDocument {
   hash: string;
   role: DocumentRole;

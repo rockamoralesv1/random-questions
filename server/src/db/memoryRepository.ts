@@ -3,6 +3,7 @@ import type {
   ChunkRow,
   ChunkStatus,
   ClientDocumentRow,
+  DocumentMemberRow,
   DocumentRole,
   QuestionStatRow,
   QuizSessionRow,
@@ -56,10 +57,6 @@ export class MemoryRepository implements Repository {
     this.versions.set(hash, version);
   }
 
-  async findHashesByPrefix(prefix: string, limit: number): Promise<string[]> {
-    return [...this.docs.keys()].filter((h) => h.startsWith(prefix)).slice(0, limit);
-  }
-
   async getDocumentName(hash: string): Promise<string | null> {
     return this.names.get(hash) ?? null;
   }
@@ -107,6 +104,16 @@ export class MemoryRepository implements Repository {
 
   async getClientRole(clientId: string, hash: string): Promise<DocumentRole | null> {
     return this.links.get(clientId)?.get(hash)?.role ?? null;
+  }
+
+  async listDocumentMembers(hash: string): Promise<DocumentMemberRow[]> {
+    const out: DocumentMemberRow[] = [];
+    for (const [clientId, docs] of this.links) {
+      const link = docs.get(hash);
+      const user = [...this.users.values()].find((u) => u.id === clientId);
+      if (link && user) out.push({ userId: user.id, email: user.email, role: link.role, addedAt: link.savedAt });
+    }
+    return out.sort((a, b) => a.addedAt - b.addedAt);
   }
 
   async unlinkClient(clientId: string, hash: string): Promise<void> {

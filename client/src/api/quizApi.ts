@@ -1,5 +1,6 @@
 import { handleUnauthorized } from '../store/authStore';
 import type {
+  DocumentMember,
   ActiveQuiz,
   QuestionStat,
   QuizMode,
@@ -67,17 +68,24 @@ export async function removeDocument(hash: string): Promise<void> {
   if (!res.ok && res.status !== 404) throw new Error('Could not remove document');
 }
 
-/** Adds a shared question bank (by share code) to this browser's list. */
-export async function importDocument(code: string): Promise<DocumentState> {
-  const res = await apiFetch(
-    '/api/documents/import',
-    withClientId({
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code }),
-    }),
-  );
-  return jsonOrThrow(res, 'Import failed');
+/** Users with access to a bank you own. */
+export async function listShares(hash: string): Promise<DocumentMember[]> {
+  return jsonOrThrow(await apiFetch(`/api/documents/${hash}/shares`), 'Could not load sharing');
+}
+
+/** Shares a bank you own with an existing user, by email. */
+export async function shareWith(hash: string, email: string): Promise<DocumentMember[]> {
+  const res = await apiFetch(`/api/documents/${hash}/shares`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  return jsonOrThrow(res, 'Could not share');
+}
+
+export async function unshare(hash: string, userId: string): Promise<DocumentMember[]> {
+  const res = await apiFetch(`/api/documents/${hash}/shares/${encodeURIComponent(userId)}`, { method: 'DELETE' });
+  return jsonOrThrow(res, 'Could not remove access');
 }
 
 export async function startQuizSession(

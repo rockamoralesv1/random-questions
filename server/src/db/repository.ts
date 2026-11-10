@@ -13,6 +13,13 @@ export interface ChunkRow {
 /** 'owner': uploaded the PDF (may re-process it); 'shared': imported it by code. */
 export type DocumentRole = 'owner' | 'shared';
 
+export interface DocumentMemberRow {
+  userId: string;
+  email: string;
+  role: DocumentRole;
+  addedAt: number;
+}
+
 export interface ClientDocumentRow {
   hash: string;
   role: DocumentRole;
@@ -84,8 +91,6 @@ export interface Repository {
   getExtractionVersion(hash: string): Promise<number | null>;
   /** Discards extracted pairs and re-queues every chunk under a new version. */
   resetDocument(hash: string, version: number): Promise<void>;
-  /** Up to `limit` document hashes starting with `prefix` (for share codes). */
-  findHashesByPrefix(prefix: string, limit: number): Promise<string[]>;
   /** File name the document was first uploaded with. */
   getDocumentName(hash: string): Promise<string | null>;
   getChunks(hash: string): Promise<ChunkRow[]>;
@@ -101,6 +106,8 @@ export interface Repository {
   /** Adds the document to the client's list. Never downgrades an owner to shared. */
   linkClient(clientId: string, hash: string, fileName: string, role: DocumentRole): Promise<void>;
   getClientRole(clientId: string, hash: string): Promise<DocumentRole | null>;
+  /** User accounts with access to the document (legacy personal codes excluded). */
+  listDocumentMembers(hash: string): Promise<DocumentMemberRow[]>;
   unlinkClient(clientId: string, hash: string): Promise<void>;
   listClientDocuments(clientId: string): Promise<ClientDocumentRow[]>;
 

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuizStore } from '../store/quizStore';
 import { startQuizSession, retryDocument, reextractDocument } from '../api/quizApi';
 import { pollDocument, stopPolling } from '../lib/documentPoller';
-import { shareCodeFor, copyToClipboard } from '../lib/shareCode';
+import { SharePanel } from './SharePanel';
 import { SourceRef } from './SourceRef';
 import { translations } from '../i18n';
 import type { QAPair } from '../types';
@@ -142,7 +142,6 @@ export function PreviewPairs() {
   const [rangeInput, setRangeInput] = useState('');
   const [rangeError, setRangeError] = useState<string | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   // Pairs keep arriving while the server extracts the PDF. New ones are
   // appended and selected; if the list is replaced (another bank, or a retry
@@ -225,13 +224,6 @@ export function PreviewPairs() {
       setStartError((err as Error).message);
     } finally {
       setIsRetrying(false);
-    }
-  };
-
-  const handleCopyShare = async () => {
-    if (doc && (await copyToClipboard(shareCodeFor(doc.hash)))) {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
     }
   };
 
@@ -392,14 +384,10 @@ export function PreviewPairs() {
             </div>
           )}
 
-          {doc && (
-            <p className="mt-2 text-xs text-gray-400">
-              {es ? 'Código para compartir: ' : 'Share code: '}
-              <code className="font-mono text-gray-600">{shareCodeFor(doc.hash)}</code>{' '}
-              <button onClick={() => void handleCopyShare()} className="text-blue-600 hover:underline">
-                {copied ? (es ? '¡Copiado!' : 'Copied!') : es ? 'Copiar' : 'Copy'}
-              </button>
-              {doc.status !== 'processing' && doc.role === 'owner' && (
+          {doc && doc.role === 'owner' && (
+            <div className="mt-2 text-xs text-gray-400">
+              <SharePanel hash={doc.hash} es={es} />
+              {doc.status !== 'processing' && (
                 <>
                   {' · '}
                   <button
@@ -411,6 +399,11 @@ export function PreviewPairs() {
                   </button>
                 </>
               )}
+            </div>
+          )}
+          {doc && doc.role === 'shared' && (
+            <p className="mt-2 text-xs text-gray-400">
+              {es ? 'Banco compartido contigo.' : 'This bank was shared with you.'}
             </p>
           )}
         </div>

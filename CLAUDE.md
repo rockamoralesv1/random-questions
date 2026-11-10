@@ -125,8 +125,9 @@ Question banks are stored in Postgres (`server/src/db/`) as per-chunk rows: the
 PDF text is split into ~15k-char chunks (`services/extractionService.ts`), each
 extracted in the background and saved as it finishes; the client polls
 `GET /api/documents/:hash` and the preview fills in progressively. Unfinished
-chunks resume on boot. Browsers are identified by an anonymous personal code
-(`X-Client-Id`); a bank's share code is the first 12 hex chars of its hash.
+chunks resume on boot. Banks belong to users: the uploader is `owner`, and
+owners can share a bank with existing users by email (`shared`: view and
+practice only). Only linked users can open a bank.
 
 **Accounts**: every `/api` route except `/api/config` and `/api/auth/*` requires
 login (email + password, scrypt; session = httpOnly SameSite=Lax cookie, 30 days,
@@ -143,7 +144,7 @@ POST   /api/upload              → DocumentState (extraction continues in backg
 GET    /api/documents           → this browser's banks (X-Client-Id)
 GET    /api/documents/:hash     → { status, totalChunks, completedChunks, failedChunks, pairs, error }
 POST   /api/documents/:hash/retry  → re-extract failed chunks
-POST   /api/documents/import    → { code } adds a shared bank
+GET/POST /api/documents/:hash/shares, DELETE …/shares/:userId → share with users (owner only)
 DELETE /api/documents/:hash     → remove from this browser's list
 POST   /api/documents/:hash/reextract → discard and re-extract the whole PDF
 GET    /api/config              → { aiEnabled }

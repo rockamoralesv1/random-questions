@@ -8,6 +8,7 @@ export type {
   ChunkStatus,
   ClientDocumentRow,
   DocumentRole,
+  DocumentMemberRow,
   QuizMode,
   QuizSessionRow,
   QuestionStatRow,
