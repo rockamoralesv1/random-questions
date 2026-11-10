@@ -137,7 +137,10 @@ it was sent to. First admin: `heroku run "npm run invite -- <email> --admin"`.
 Login/sign-up attempts and login-screen page loads (HTML without a valid
 session): each 20/min globally + 5/min per IP; every request is capped at
 1000/min per user (per IP before login). All five are configurable with
-`RATE_LIMIT_*_PER_MIN` env vars (see `.env.example`).
+`RATE_LIMIT_*_PER_MIN` env vars (see `.env.example`). Build assets
+(`/assets/*`, hashed names) are served before any session lookup, cached
+for a year (`immutable`) and limited per IP; `index.html` is `no-cache`.
+Behind Cloudflare set `TRUST_PROXY_HOPS=2` and `ORIGIN_SECRET`.
 Data owned by pre-login personal codes moves to the account on first login.
 
 ```

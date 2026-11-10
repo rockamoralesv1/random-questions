@@ -167,6 +167,12 @@ export class PostgresRepository implements Repository {
       ssl: isLocal ? false : { rejectUnauthorized: false },
       max: 5,
     });
+    // An idle connection dropped by the server (Postgres restart, failover,
+    // maintenance) emits 'error' on the pool; unhandled, that crashes the
+    // whole process. The pool already discards the broken client, so log it.
+    this.pool.on('error', (err) => {
+      console.error('[db] idle connection error (connection discarded):', err.message);
+    });
   }
 
   async init(): Promise<void> {

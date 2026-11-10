@@ -53,6 +53,7 @@ export const LIMITS = {
   loginPerIp: envLimit('RATE_LIMIT_LOGIN_IP_PER_MIN', 5),
   loginPageGlobal: envLimit('RATE_LIMIT_LOGIN_PAGE_GLOBAL_PER_MIN', 20),
   loginPagePerIp: envLimit('RATE_LIMIT_LOGIN_PAGE_IP_PER_MIN', 5),
+  staticPerIp: envLimit('RATE_LIMIT_STATIC_IP_PER_MIN', 600),
 };
 const HOUR = 60 * MINUTE;
 
@@ -106,7 +107,14 @@ export const loginPageGlobalLimit = makePageLimit('global', LIMITS.loginPageGlob
 /** /api/auth/me and logout: generous per-IP cap (they hit the database). */
 export const authMiscLimit = makeRateLimit({ windowMs: MINUTE, max: 60, scope: 'ip' });
 
-/** Every request (API, page and assets): per user, or per IP before login (default 1000/min). */
+/**
+ * Build assets (/assets/*), per IP (default 600/min). Checked before any
+ * session lookup so these requests never reach the database. A first visit
+ * needs a handful of files; after that browsers serve them from cache.
+ */
+export const staticAssetsLimit = makeRateLimit({ windowMs: MINUTE, max: LIMITS.staticPerIp, scope: 'ip' });
+
+/** Every request except build assets: per user, or per IP before login (default 1000/min). */
 export const allRequestsLimit = makeRateLimit({ windowMs: MINUTE, max: LIMITS.requestsPerUser });
 
 /** PDF uploads start AI extraction (the most expensive call). */
