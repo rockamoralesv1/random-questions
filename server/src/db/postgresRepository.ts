@@ -8,7 +8,33 @@ import type {
   QuestionStatRow,
   QuizSessionRow,
   Repository,
+  UserRow,
+  InvitationRow,
 } from './repository';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toUser(row: any): UserRow {
+  return {
+    id: row.id,
+    email: row.email,
+    passwordHash: row.password_hash,
+    role: row.role,
+    createdAt: new Date(row.created_at).getTime(),
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toInvitation(row: any): InvitationRow {
+  return {
+    id: row.id,
+    email: row.email,
+    role: row.role,
+    invitedBy: row.invited_by,
+    createdAt: new Date(row.created_at).getTime(),
+    expiresAt: new Date(row.expires_at).getTime(),
+    usedAt: row.used_at ? new Date(row.used_at).getTime() : null,
+  };
+}
 import { questionKey } from './questionKey';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -85,7 +111,37 @@ CREATE TABLE IF NOT EXISTS quiz_sessions (
 );
 CREATE INDEX IF NOT EXISTS quiz_sessions_client_idx ON quiz_sessions (client_id, updated_at DESC);
 
--- Attempts and fails per question, per browser (personal code).
+CREATE TABLE IF NOT EXISTS users (
+  id             TEXT PRIMARY KEY,
+  email          TEXT NOT NULL UNIQUE,
+  password_hash  TEXT NOT NULL,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user';
+
+-- One-time sign-up links created by admins, stored by SHA-256 of the token.
+CREATE TABLE IF NOT EXISTS invitations (
+  id          TEXT PRIMARY KEY,
+  token_hash  TEXT NOT NULL UNIQUE,
+  email       TEXT NOT NULL,
+  role        TEXT NOT NULL DEFAULT 'user',
+  invited_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at  TIMESTAMPTZ NOT NULL,
+  used_at     TIMESTAMPTZ,
+  used_by     TEXT
+);
+
+-- Login sessions, stored by SHA-256 of the cookie token (never the token itself).
+CREATE TABLE IF NOT EXISTS login_sessions (
+  token_hash  TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at  TIMESTAMPTZ NOT NULL
+);
+
+-- Attempts and fails per question, per user (or legacy personal code).
 CREATE TABLE IF NOT EXISTS question_stats (
   client_id       TEXT NOT NULL,
   question_key    TEXT NOT NULL,
@@ -398,5 +454,130 @@ export class PostgresRepository implements Repository {
 
   async clearQuestionStats(clientId: string): Promise<void> {
     await this.pool.query('DELETE FROM question_stats WHERE client_id = $1', [clientId]);
+  }
+
+  // ── Users and login sessions ───────────────────────────────────────────────
+
+  async createUser(user: UserRow): Promise<boolean> {
+    const r = await this.pool.query(
+      `INSERT INTO users (id, email, password_hash, role) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (email) DO NOTHING`,
+      [user.id, user.email, user.passwordHash, user.role],
+    );
+    return (r.rowCount ?? 0) > 0;
+  }
+
+  async getUserByEmail(email: string): Promise<UserRow | null> {
+    const r = await this.pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    return r.rows[0] ? toUser(r.rows[0]) : null;
+  }
+
+  async listUsers(): Promise<UserRow[]> {
+    const r = await this.pool.query('SELECT * FROM users ORDER BY created_at');
+    return r.rows.map(toUser);
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    await this.pool.query('DELETE FROM users WHERE id = $1', [id]); // cascades to login_sessions
+  }
+
+  async createInvitation(inv: InvitationRow, tokenHash: string): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO invitations (id, token_hash, email, role, invited_by, expires_at)
+       VALUES ($1, $2, $3, $4, $5, to_timestamp($6 / 1000.0))`,
+      [inv.id, tokenHash, inv.email, inv.role, inv.invitedBy, inv.expiresAt],
+    );
+  }
+
+  async getPendingInvitation(tokenHash: string): Promise<InvitationRow | null> {
+    const r = await this.pool.query(
+      `SELECT * FROM invitations WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()`,
+      [tokenHash],
+    );
+    return r.rows[0] ? toInvitation(r.rows[0]) : null;
+  }
+
+  async consumeInvitation(tokenHash: string, userId: string): Promise<InvitationRow | null> {
+    const r = await this.pool.query(
+      `UPDATE invitations SET used_at = now(), used_by = $2
+        WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()
+        RETURNING *`,
+      [tokenHash, userId],
+    );
+    return r.rows[0] ? toInvitation(r.rows[0]) : null;
+  }
+
+  async releaseInvitation(tokenHash: string): Promise<void> {
+    await this.pool.query('UPDATE invitations SET used_at = NULL, used_by = NULL WHERE token_hash = $1', [tokenHash]);
+  }
+
+  async listInvitations(): Promise<InvitationRow[]> {
+    const r = await this.pool.query('SELECT * FROM invitations ORDER BY created_at DESC LIMIT 200');
+    return r.rows.map(toInvitation);
+  }
+
+  async deleteInvitation(id: string): Promise<boolean> {
+    const r = await this.pool.query('DELETE FROM invitations WHERE id = $1 AND used_at IS NULL', [id]);
+    return (r.rowCount ?? 0) > 0;
+  }
+
+  async createLoginSession(tokenHash: string, userId: string, expiresAt: number): Promise<void> {
+    await this.pool.query(
+      'INSERT INTO login_sessions (token_hash, user_id, expires_at) VALUES ($1, $2, to_timestamp($3 / 1000.0))',
+      [tokenHash, userId, expiresAt],
+    );
+  }
+
+  async getUserByLoginSession(tokenHash: string): Promise<UserRow | null> {
+    const r = await this.pool.query(
+      `SELECT u.* FROM login_sessions s JOIN users u ON u.id = s.user_id
+        WHERE s.token_hash = $1 AND s.expires_at > now()`,
+      [tokenHash],
+    );
+    return r.rows[0] ? toUser(r.rows[0]) : null;
+  }
+
+  async deleteLoginSession(tokenHash: string): Promise<void> {
+    await this.pool.query('DELETE FROM login_sessions WHERE token_hash = $1', [tokenHash]);
+  }
+
+  async purgeExpiredLoginSessions(): Promise<number> {
+    const r = await this.pool.query('DELETE FROM login_sessions WHERE expires_at <= now()');
+    return r.rowCount ?? 0;
+  }
+
+  async claimLegacyClientData(legacyClientId: string, userId: string): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `INSERT INTO client_documents (client_id, hash, file_name, saved_at, role)
+         SELECT $2, hash, file_name, saved_at, role FROM client_documents WHERE client_id = $1
+         ON CONFLICT (client_id, hash) DO UPDATE SET
+           role = CASE WHEN client_documents.role = 'owner' OR EXCLUDED.role = 'owner'
+                       THEN 'owner' ELSE 'shared' END`,
+        [legacyClientId, userId],
+      );
+      await client.query('DELETE FROM client_documents WHERE client_id = $1', [legacyClientId]);
+      await client.query('UPDATE quiz_sessions SET client_id = $2 WHERE client_id = $1', [legacyClientId, userId]);
+      await client.query(
+        `INSERT INTO question_stats
+                (client_id, question_key, question, correct_answer, source, attempts, fails, last_seen)
+         SELECT $2, question_key, question, correct_answer, source, attempts, fails, last_seen
+           FROM question_stats WHERE client_id = $1
+         ON CONFLICT (client_id, question_key) DO UPDATE SET
+           attempts  = question_stats.attempts + EXCLUDED.attempts,
+           fails     = question_stats.fails + EXCLUDED.fails,
+           last_seen = GREATEST(question_stats.last_seen, EXCLUDED.last_seen)`,
+        [legacyClientId, userId],
+      );
+      await client.query('DELETE FROM question_stats WHERE client_id = $1', [legacyClientId]);
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 }

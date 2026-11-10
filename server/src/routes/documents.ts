@@ -8,7 +8,6 @@ import {
   retryFailedChunks,
   startExtraction,
 } from '../services/extractionService';
-import { requireClientId } from '../middleware/clientId';
 import { importLimit, retryLimit } from '../middleware/rateLimit';
 
 const router = Router();
@@ -37,7 +36,7 @@ const requireOwner: RequestHandler = async (req, res, next) => {
 };
 
 // GET /api/documents — this browser's question banks, most recent first.
-router.get('/', requireClientId, async (_req, res, next) => {
+router.get('/', async (_req, res, next) => {
   try {
     res.json(await getRepository().listClientDocuments(res.locals.clientId));
   } catch (err) {
@@ -49,7 +48,7 @@ router.get('/', requireClientId, async (_req, res, next) => {
 // list. The share code is the first SHARE_CODE_LENGTH hex chars of the hash
 // (a full hash is accepted too).
 export const SHARE_CODE_LENGTH = 12;
-router.post('/import', importLimit, requireClientId, async (req, res, next) => {
+router.post('/import', importLimit, async (req, res, next) => {
   try {
     const code = String(req.body?.code ?? '').trim().toLowerCase();
     if (!/^[a-f0-9]+$/.test(code) || code.length < SHARE_CODE_LENGTH || code.length > 64) {
@@ -95,7 +94,7 @@ router.get('/:hash', async (req, res, next) => {
 });
 
 // POST /api/documents/:hash/retry — re-extract only the chunks that failed.
-router.post('/:hash/retry', requireAI, retryLimit, requireClientId, requireOwner, async (req, res, next) => {
+router.post('/:hash/retry', requireAI, retryLimit, requireOwner, async (req, res, next) => {
   try {
     const hash = String(req.params.hash);
     if (!HASH_RE.test(hash)) {
@@ -116,7 +115,7 @@ router.post('/:hash/retry', requireAI, retryLimit, requireClientId, requireOwner
 
 // POST /api/documents/:hash/reextract — throw away the extracted questions
 // and process the whole PDF again with the current extraction prompt.
-router.post('/:hash/reextract', requireAI, retryLimit, requireClientId, requireOwner, async (req, res, next) => {
+router.post('/:hash/reextract', requireAI, retryLimit, requireOwner, async (req, res, next) => {
   try {
     const hash = String(req.params.hash);
     if (!HASH_RE.test(hash)) {
@@ -142,7 +141,7 @@ router.post('/:hash/reextract', requireAI, retryLimit, requireClientId, requireO
 
 // DELETE /api/documents/:hash — remove from this browser's list. The extracted
 // data stays, so uploading the same PDF again is instant and free.
-router.delete('/:hash', requireClientId, async (req, res, next) => {
+router.delete('/:hash', async (req, res, next) => {
   try {
     await getRepository().unlinkClient(res.locals.clientId, String(req.params.hash));
     res.status(204).end();

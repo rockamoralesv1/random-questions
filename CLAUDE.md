@@ -128,7 +128,17 @@ extracted in the background and saved as it finishes; the client polls
 chunks resume on boot. Browsers are identified by an anonymous personal code
 (`X-Client-Id`); a bank's share code is the first 12 hex chars of its hash.
 
+**Accounts**: every `/api` route except `/api/config` and `/api/auth/*` requires
+login (email + password, scrypt; session = httpOnly SameSite=Lax cookie, 30 days,
+stored hashed in `login_sessions`). Sign-up is by admin invitation: an emailed
+magic link (Resend) that expires in 1 hour, works once, and only with the email
+it was sent to. First admin: `heroku run "npm run invite -- <email> --admin"`.
+Login/sign-up: 20/min globally + 5/min per IP; other limits are per user.
+Data owned by pre-login personal codes moves to the account on first login.
+
 ```
+POST   /api/auth/login|register|logout, GET /api/auth/me
+GET/POST/DELETE /api/admin/invitations, GET /api/admin/users  (admins)
 POST   /api/upload              → DocumentState (extraction continues in background)
 GET    /api/documents           → this browser's banks (X-Client-Id)
 GET    /api/documents/:hash     → { status, totalChunks, completedChunks, failedChunks, pairs, error }

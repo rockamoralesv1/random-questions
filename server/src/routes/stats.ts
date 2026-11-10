@@ -1,11 +1,9 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { getRepository } from '../db';
-import { requireClientId } from '../middleware/clientId';
 import { statsImportLimit } from '../middleware/rateLimit';
 
 const router = Router();
-router.use(requireClientId);
 
 // GET /api/stats — per-question attempts/fails for this browser, most-failed first.
 router.get('/', async (_req, res, next) => {

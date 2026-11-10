@@ -7,6 +7,8 @@ import type {
   QuestionStatRow,
   QuizSessionRow,
   Repository,
+  UserRow,
+  InvitationRow,
 } from './repository';
 import { questionKey } from './questionKey';
 
@@ -21,6 +23,9 @@ export class MemoryRepository implements Repository {
   private links = new Map<string, Map<string, { fileName: string; savedAt: number; role: DocumentRole }>>();
   private sessions = new Map<string, QuizSessionRow>();
   private stats = new Map<string, Map<string, QuestionStatRow>>();
+  private users = new Map<string, UserRow>(); // by email
+  private loginSessions = new Map<string, { userId: string; expiresAt: number }>();
+  private invitations = new Map<string, { inv: InvitationRow; usedBy: string | null }>(); // by token hash
 
   async init(): Promise<void> {}
 
@@ -219,5 +224,115 @@ export class MemoryRepository implements Repository {
 
   async clearQuestionStats(clientId: string): Promise<void> {
     this.stats.delete(clientId);
+  }
+
+  // ── Users and login sessions ───────────────────────────────────────────────
+
+  async createUser(user: UserRow): Promise<boolean> {
+    if (this.users.has(user.email)) return false;
+    this.users.set(user.email, clone(user));
+    return true;
+  }
+
+  async getUserByEmail(email: string): Promise<UserRow | null> {
+    const u = this.users.get(email);
+    return u ? clone(u) : null;
+  }
+
+  async listUsers(): Promise<UserRow[]> {
+    return [...this.users.values()].map(clone).sort((a, b) => a.createdAt - b.createdAt);
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    for (const [email, u] of this.users) if (u.id === id) this.users.delete(email);
+    for (const [k, s] of this.loginSessions) if (s.userId === id) this.loginSessions.delete(k);
+  }
+
+  async createInvitation(inv: InvitationRow, tokenHash: string): Promise<void> {
+    this.invitations.set(tokenHash, { inv: clone(inv), usedBy: null });
+  }
+
+  async getPendingInvitation(tokenHash: string): Promise<InvitationRow | null> {
+    const e = this.invitations.get(tokenHash);
+    return e && e.inv.usedAt === null && e.inv.expiresAt > Date.now() ? clone(e.inv) : null;
+  }
+
+  async consumeInvitation(tokenHash: string, userId: string): Promise<InvitationRow | null> {
+    const e = this.invitations.get(tokenHash);
+    if (!e || e.inv.usedAt !== null || e.inv.expiresAt <= Date.now()) return null;
+    e.inv.usedAt = Date.now();
+    e.usedBy = userId;
+    return clone(e.inv);
+  }
+
+  async releaseInvitation(tokenHash: string): Promise<void> {
+    const e = this.invitations.get(tokenHash);
+    if (e) {
+      e.inv.usedAt = null;
+      e.usedBy = null;
+    }
+  }
+
+  async listInvitations(): Promise<InvitationRow[]> {
+    return [...this.invitations.values()].map((e) => clone(e.inv)).sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  async deleteInvitation(id: string): Promise<boolean> {
+    for (const [k, e] of this.invitations) {
+      if (e.inv.id === id && e.inv.usedAt === null) {
+        this.invitations.delete(k);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  async createLoginSession(tokenHash: string, userId: string, expiresAt: number): Promise<void> {
+    this.loginSessions.set(tokenHash, { userId, expiresAt });
+  }
+
+  async getUserByLoginSession(tokenHash: string): Promise<UserRow | null> {
+    const s = this.loginSessions.get(tokenHash);
+    if (!s || s.expiresAt <= Date.now()) return null;
+    const u = [...this.users.values()].find((x) => x.id === s.userId);
+    return u ? clone(u) : null;
+  }
+
+  async deleteLoginSession(tokenHash: string): Promise<void> {
+    this.loginSessions.delete(tokenHash);
+  }
+
+  async purgeExpiredLoginSessions(): Promise<number> {
+    let n = 0;
+    for (const [k, s] of this.loginSessions) {
+      if (s.expiresAt <= Date.now()) {
+        this.loginSessions.delete(k);
+        n++;
+      }
+    }
+    return n;
+  }
+
+  async claimLegacyClientData(legacyClientId: string, userId: string): Promise<void> {
+    const legacyLinks = this.links.get(legacyClientId);
+    if (legacyLinks) {
+      for (const [hash, link] of legacyLinks) await this.linkClient(userId, hash, link.fileName, link.role);
+      this.links.delete(legacyClientId);
+    }
+    for (const s of this.sessions.values()) if (s.clientId === legacyClientId) s.clientId = userId;
+    const legacyStats = this.stats.get(legacyClientId);
+    if (legacyStats) {
+      const mine = this.statsFor(userId);
+      for (const [key, st] of legacyStats) {
+        const cur = mine.get(key);
+        mine.set(
+          key,
+          cur
+            ? { ...cur, attempts: cur.attempts + st.attempts, fails: cur.fails + st.fails, lastSeen: Math.max(cur.lastSeen, st.lastSeen) }
+            : st,
+        );
+      }
+      this.stats.delete(legacyClientId);
+    }
   }
 }

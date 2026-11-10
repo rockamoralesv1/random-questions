@@ -15,7 +15,8 @@
     "dev:client": "npm run dev --workspace=client",
     "build": "npm run build --workspace=server && npm run build --workspace=client",
     "start": "node server/dist/index.js",
-    "test": "npm run test --workspaces --if-present"
+    "test": "npm run test --workspaces --if-present",
+    "invite": "node server/dist/scripts/invite.js"
   },
   "devDependencies": {
     "concurrently": "9.2.5"

@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { createSession, getCurrentQuestion } from '../services/quizService';
-import { requireClientId } from '../middleware/clientId';
 import { quizStartLimit } from '../middleware/rateLimit';
 
 const router = Router();
@@ -22,7 +21,7 @@ const BodySchema = z.object({
   quizMode: z.enum(['voice', 'flashcard']).optional(),
 });
 
-router.post('/', quizStartLimit, requireClientId, async (req, res, next) => {
+router.post('/', quizStartLimit, async (req, res, next) => {
   try {
     const parsed = BodySchema.safeParse(req.body);
     if (!parsed.success) {

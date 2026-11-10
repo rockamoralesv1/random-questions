@@ -12,7 +12,6 @@ import {
 } from '../services/extractionService';
 import { getRepository } from '../db';
 import { isAIEnabled } from '../ai';
-import { requireClientId } from '../middleware/clientId';
 import { uploadLimit } from '../middleware/rateLimit';
 
 const router = Router();
@@ -43,7 +42,7 @@ const singlePdf: RequestHandler = (req, res, next) => {
 // Saves the PDF's text as chunks and starts extracting them in the background.
 // Responds right away with the document's state; the client then polls
 // GET /api/documents/:hash. A PDF already in the database is never re-extracted.
-router.post('/', uploadLimit, requireClientId, singlePdf, async (req, res, next) => {
+router.post('/', uploadLimit, singlePdf, async (req, res, next) => {
   try {
     if (!req.file) {
       res.status(400).json({ error: 'No file provided' });

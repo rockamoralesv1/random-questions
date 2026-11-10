@@ -21,6 +21,10 @@ async function main() {
     .then((n) => n && console.log(`[quiz] purged ${n} session(s) older than ${SESSION_RETENTION_DAYS} days`))
     .catch((err) => console.error('[quiz] could not purge old sessions:', err));
 
+  getRepository()
+    .purgeExpiredLoginSessions()
+    .catch((err) => console.error('[auth] could not purge expired login sessions:', err));
+
   // Pick up documents left half-extracted by a restart or deploy.
   resumeUnfinishedExtractions().catch((err) =>
     console.error('[extraction] could not resume unfinished documents:', err),

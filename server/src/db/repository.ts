@@ -26,6 +26,27 @@ export interface ClientDocumentRow {
 
 export type QuizMode = 'voice' | 'flashcard';
 
+export type UserRole = 'admin' | 'user';
+
+export interface UserRow {
+  /** "u_" + UUID. The "_" can never appear in a legacy personal code. */
+  id: string;
+  email: string;
+  passwordHash: string;
+  role: UserRole;
+  createdAt: number;
+}
+
+export interface InvitationRow {
+  id: string;
+  email: string;
+  role: UserRole;
+  invitedBy: string | null;
+  createdAt: number;
+  expiresAt: number;
+  usedAt: number | null;
+}
+
 export interface QuizSessionRow {
   id: string;
   clientId: string | null;
@@ -99,6 +120,36 @@ export interface Repository {
   deleteQuizSession(id: string): Promise<void>;
   /** Deletes sessions not touched in `days` days. */
   purgeQuizSessions(days: number): Promise<number>;
+
+  // ── Users and login sessions ───────────────────────────────────────────────
+  /** Returns false if the email is already registered. */
+  createUser(user: UserRow): Promise<boolean>;
+  getUserByEmail(email: string): Promise<UserRow | null>;
+  listUsers(): Promise<UserRow[]>;
+  deleteUser(id: string): Promise<void>;
+
+  // ── Invitations (stored by SHA-256 of the link token) ──────────────────────
+  createInvitation(inv: InvitationRow, tokenHash: string): Promise<void>;
+  /** A pending (unused, unexpired) invitation, or null. */
+  getPendingInvitation(tokenHash: string): Promise<InvitationRow | null>;
+  /** Marks a pending invitation used; returns it, or null if it wasn't pending. */
+  consumeInvitation(tokenHash: string, userId: string): Promise<InvitationRow | null>;
+  /** Undoes consumeInvitation (when creating the account then fails). */
+  releaseInvitation(tokenHash: string): Promise<void>;
+  listInvitations(): Promise<InvitationRow[]>;
+  /** Revokes an invitation that hasn't been used. Returns false otherwise. */
+  deleteInvitation(id: string): Promise<boolean>;
+  /** Stores a login session by the SHA-256 of its token. */
+  createLoginSession(tokenHash: string, userId: string, expiresAt: number): Promise<void>;
+  /** The user of an unexpired login session, or null. */
+  getUserByLoginSession(tokenHash: string): Promise<UserRow | null>;
+  deleteLoginSession(tokenHash: string): Promise<void>;
+  purgeExpiredLoginSessions(): Promise<number>;
+  /**
+   * Moves everything saved under a pre-login personal code (banks, quizzes,
+   * stats) to the user, merging with what the user already has.
+   */
+  claimLegacyClientData(legacyClientId: string, userId: string): Promise<void>;
 
   // ── Per-question stats ─────────────────────────────────────────────────────
   /** Adds one attempt for the question (and a fail when !passed). */

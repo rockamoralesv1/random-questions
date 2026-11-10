@@ -4,6 +4,10 @@ import path from 'path';
 import fs from 'fs';
 import { errorHandler } from './middleware/errorHandler';
 import { apiLimit } from './middleware/rateLimit';
+import { requireAuth, sameOriginWrites } from './middleware/auth';
+import { authRouter } from './routes/auth';
+import { adminRouter } from './routes/admin';
+import { signupsEnabled } from './services/authService';
 import { isAIEnabled } from './ai';
 import { uploadRouter } from './routes/upload';
 import { documentsRouter } from './routes/documents';
@@ -46,8 +50,19 @@ app.use(
   }),
 );
 app.use(express.json({ limit: '2mb' }));
-app.use('/api', apiLimit);
+app.use('/api', sameOriginWrites);
 
+// ── Public endpoints ─────────────────────────────────────────────────────────
+// Lets the client adapt its UI (AI disabled, sign-ups closed) before login.
+app.get('/api/config', (_req, res) => {
+  res.json({ aiEnabled: isAIEnabled(), signupsEnabled: signupsEnabled() });
+});
+app.use('/api/auth', authRouter); // has its own login rate limits
+
+// ── Everything else requires a logged-in user ────────────────────────────────
+app.use('/api', requireAuth, apiLimit); // apiLimit counts per user
+
+app.use('/api/admin', adminRouter);
 app.use('/api/upload', uploadRouter);
 app.use('/api/documents', documentsRouter);
 app.use('/api/stats', statsRouter);
@@ -57,10 +72,6 @@ app.use('/api/evaluate', evaluateRouter);
 app.use('/api/results', resultsRouter);
 app.use('/api/tts', ttsRouter);
 
-// Lets the client adapt its UI when AI_ENABLED=false.
-app.get('/api/config', (_req, res) => {
-  res.json({ aiEnabled: isAIEnabled() });
-});
 app.use('/api/stt', sttRouter);
 
 // In production (Heroku), serve the Vite build and handle SPA routing.

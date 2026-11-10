@@ -11,6 +11,9 @@ export type {
   QuizMode,
   QuizSessionRow,
   QuestionStatRow,
+  UserRow,
+  UserRole,
+  InvitationRow,
 } from './repository';
 
 let repo: Repository | null = null;

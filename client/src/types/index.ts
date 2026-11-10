@@ -69,7 +69,7 @@ export interface ResultsResponse {
   }>;
 }
 
-export type AppView = 'upload' | 'preview' | 'quiz' | 'results' | 'stats';
+export type AppView = 'upload' | 'preview' | 'quiz' | 'results' | 'stats' | 'admin';
 export type QuizMode = 'voice' | 'flashcard';
 
 /** GET /api/quiz/active — the unfinished quiz to offer "continue where you left off". */

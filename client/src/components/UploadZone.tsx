@@ -20,7 +20,6 @@ import {
   type SavedDocument,
 } from '../lib/storage';
 import { getDraftSession, clearDraftSession, type DraftSession } from '../lib/draftSession';
-import { getClientId, normalizePersonalCode, setClientId } from '../lib/clientId';
 import { pollDocument } from '../lib/documentPoller';
 import { shareCodeFor, copyToClipboard } from '../lib/shareCode';
 import type { ActiveQuiz, ClientDocument, DocumentRole, DocumentState, QAPair } from '../types';
@@ -44,7 +43,6 @@ export function UploadZone() {
   const [codeInput, setCodeInput] = useState('');
   const [codeMsg, setCodeMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
-  const [clientId, setClientIdState] = useState(getClientId);
   const [aiEnabled, setAiEnabled] = useState(true);
   const tr = translations[language];
   const es = language === 'es';
@@ -82,7 +80,7 @@ export function UploadZone() {
     return () => {
       cancelled = true;
     };
-  }, [refreshRecent, clientId]);
+  }, [refreshRecent]);
 
   const handleResume = useCallback(async () => {
     if (!draft) return;
@@ -183,34 +181,23 @@ export function UploadZone() {
     }
   };
 
-  // One field accepts both kinds of code: a personal code (XXXX-XXXX-XXXX-XXXX)
-  // restores a whole list; a share code (12+ hex chars) adds one bank.
+  // Share code of someone else's question bank (12+ hex characters).
   const handleCode = async () => {
     const input = codeInput.trim();
     if (!input) return;
     setCodeMsg(null);
-
-    if (/^[0-9a-f]{12,64}$/i.test(input)) {
-      try {
-        const state = await importDocument(input);
-        setCodeInput('');
-        await refreshRecent();
-        openDocument(state, '', 'shared');
-      } catch (err) {
-        setCodeMsg({ ok: false, text: (err as Error).message });
-      }
-      return;
-    }
-
-    const personal = normalizePersonalCode(input);
-    if (!personal) {
+    if (!/^[0-9a-f]{12,64}$/i.test(input)) {
       setCodeMsg({ ok: false, text: es ? 'Código no válido' : 'Invalid code' });
       return;
     }
-    setClientId(personal);
-    setClientIdState(personal); // triggers refreshRecent
-    setCodeInput('');
-    setCodeMsg({ ok: true, text: es ? 'Lista recuperada' : 'List restored' });
+    try {
+      const state = await importDocument(input);
+      setCodeInput('');
+      await refreshRecent();
+      openDocument(state, '', 'shared');
+    } catch (err) {
+      setCodeMsg({ ok: false, text: (err as Error).message });
+    }
   };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -304,14 +291,14 @@ export function UploadZone() {
           </div>
         )}
 
-        {/* Codes: load a shared bank or restore a list */}
+        {/* Load a question bank someone shared by code */}
         <div className="mt-6 bg-white rounded-xl border border-gray-200 p-4 space-y-3">
           <div className="flex gap-2">
             <input
               value={codeInput}
               onChange={(e) => { setCodeInput(e.target.value); setCodeMsg(null); }}
               onKeyDown={(e) => { if (e.key === 'Enter') void handleCode(); }}
-              placeholder={es ? 'Pega un código de banco o tu código personal' : 'Paste a bank code or your personal code'}
+              placeholder={es ? 'Pega el código de un banco compartido' : 'Paste a shared bank code'}
               className="flex-1 min-w-0 rounded-lg border border-gray-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400"
             />
             <button
@@ -324,21 +311,6 @@ export function UploadZone() {
           {codeMsg && (
             <p className={`text-xs ${codeMsg.ok ? 'text-green-600' : 'text-red-500'}`}>{codeMsg.text}</p>
           )}
-          <div className="flex items-center gap-2 text-xs text-gray-500 flex-wrap">
-            <span>{es ? 'Tu código personal:' : 'Your personal code:'}</span>
-            <code className="font-mono font-semibold text-gray-700 bg-gray-100 rounded px-1.5 py-0.5">{clientId}</code>
-            <button
-              onClick={(e) => void handleCopy(clientId, 'personal', e)}
-              className="text-blue-600 hover:underline"
-            >
-              {copied === 'personal' ? (es ? '¡Copiado!' : 'Copied!') : es ? 'Copiar' : 'Copy'}
-            </button>
-          </div>
-          <p className="text-xs text-gray-400">
-            {es
-              ? 'Guárdalo para recuperar tus bancos en otro navegador. No lo compartas: para compartir un banco usa su código.'
-              : 'Keep it to restore your banks on another browser. Don’t share it — to share a bank, use its code.'}
-          </p>
         </div>
 
         {recent.length > 0 && (
