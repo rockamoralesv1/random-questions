@@ -30,29 +30,54 @@ export function makeRateLimit(opts: {
 }
 
 const MINUTE = 60_000;
+
+/**
+ * Positive integer from an env var, else `fallback`. Read once at startup;
+ * changing one on Heroku restarts the app, which applies it.
+ */
+function envLimit(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) {
+    console.warn(`[rate-limit] ignoring ${name}=${JSON.stringify(raw)} (must be a whole number ≥ 1); using ${fallback}`);
+    return fallback;
+  }
+  return n;
+}
+
+/** Per-minute limits, configurable with environment variables. */
+export const LIMITS = {
+  requestsPerUser: envLimit('RATE_LIMIT_REQUESTS_PER_MIN', 1000),
+  loginGlobal: envLimit('RATE_LIMIT_LOGIN_GLOBAL_PER_MIN', 20),
+  loginPerIp: envLimit('RATE_LIMIT_LOGIN_IP_PER_MIN', 5),
+  loginPageGlobal: envLimit('RATE_LIMIT_LOGIN_PAGE_GLOBAL_PER_MIN', 20),
+  loginPagePerIp: envLimit('RATE_LIMIT_LOGIN_PAGE_IP_PER_MIN', 5),
+};
 const HOUR = 60 * MINUTE;
 
 /**
- * Login and sign-up attempts. Global cap of 20/min across everyone, plus 5/min
- * per IP so one attacker can't use up the global allowance and lock others out.
+ * Login and sign-up attempts. Global cap across everyone (default 20/min), plus
+ * a per-IP cap (default 5/min) so one attacker can't use up the global
+ * allowance and lock others out.
  */
 export const authGlobalLimit = makeRateLimit({
   windowMs: MINUTE,
-  max: 20,
+  max: LIMITS.loginGlobal,
   scope: 'global',
   message: 'Too many login attempts right now. Please try again in a minute.',
 });
 export const authIpLimit = makeRateLimit({
   windowMs: MINUTE,
-  max: 5,
+  max: LIMITS.loginPerIp,
   scope: 'ip',
   message: 'Too many login attempts. Please wait a minute.',
 });
 
 /**
- * Loads of the login screen (the app's HTML without a valid session). Same
- * caps as login attempts — 20/min across everyone plus 5/min per IP — but
- * separate counters, so opening the page doesn't use up login attempts.
+ * Loads of the login screen (the app's HTML without a valid session). Default
+ * caps 20/min across everyone plus 5/min per IP, with counters separate from
+ * login attempts, so opening the page doesn't use up login attempts.
  */
 const tooManyPage = `<!doctype html><html lang="es"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -75,14 +100,14 @@ function makePageLimit(scope: 'global' | 'ip', max: number) {
     },
   });
 }
-export const loginPageIpLimit = makePageLimit('ip', 5);
-export const loginPageGlobalLimit = makePageLimit('global', 20);
+export const loginPageIpLimit = makePageLimit('ip', LIMITS.loginPagePerIp);
+export const loginPageGlobalLimit = makePageLimit('global', LIMITS.loginPageGlobal);
 
 /** /api/auth/me and logout: generous per-IP cap (they hit the database). */
 export const authMiscLimit = makeRateLimit({ windowMs: MINUTE, max: 60, scope: 'ip' });
 
-/** Every /api request — generous; catches runaway clients and scrapers. */
-export const apiLimit = makeRateLimit({ windowMs: MINUTE, max: 300 });
+/** Every request (API, page and assets): per user, or per IP before login (default 1000/min). */
+export const allRequestsLimit = makeRateLimit({ windowMs: MINUTE, max: LIMITS.requestsPerUser });
 
 /** PDF uploads start AI extraction (the most expensive call). */
 export const uploadLimit = makeRateLimit({

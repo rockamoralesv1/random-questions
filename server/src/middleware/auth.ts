@@ -27,24 +27,32 @@ export function clearSessionCookie(res: Response): void {
 }
 
 /**
- * Requires a logged-in user. Sets res.locals.userId, and res.locals.clientId
- * to the same value — the ID that owns banks, quizzes and stats.
+ * Runs on every request: identifies the logged-in user from the session
+ * cookie, if any. Sets res.locals.user/userId, and res.locals.clientId to the
+ * same ID (the one that owns banks, quizzes and stats). Never rejects.
  */
-export const requireAuth: RequestHandler = async (req, res, next) => {
+export const loadUser: RequestHandler = async (req, res, next) => {
   try {
     const token = readSessionToken(req);
     const user = token ? await userForToken(token) : null;
-    if (!user) {
-      res.status(401).json({ error: 'Please log in.', authRequired: true });
-      return;
+    if (user) {
+      res.locals.user = user;
+      res.locals.userId = user.id;
+      res.locals.clientId = user.id;
     }
-    res.locals.user = user;
-    res.locals.userId = user.id;
-    res.locals.clientId = user.id;
     next();
   } catch (err) {
     next(err);
   }
+};
+
+/** Requires a logged-in user (identified earlier by loadUser). */
+export const requireAuth: RequestHandler = (_req, res, next) => {
+  if (!res.locals.user) {
+    res.status(401).json({ error: 'Please log in.', authRequired: true });
+    return;
+  }
+  next();
 };
 
 /**

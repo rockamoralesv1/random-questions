@@ -3,9 +3,8 @@ import helmet from 'helmet';
 import path from 'path';
 import fs from 'fs';
 import { errorHandler } from './middleware/errorHandler';
-import { apiLimit, loginPageGlobalLimit, loginPageIpLimit } from './middleware/rateLimit';
-import { readSessionToken, requireAuth, sameOriginWrites } from './middleware/auth';
-import { userForToken } from './services/authService';
+import { allRequestsLimit, loginPageGlobalLimit, loginPageIpLimit } from './middleware/rateLimit';
+import { loadUser, requireAuth, sameOriginWrites } from './middleware/auth';
 import { authRouter } from './routes/auth';
 import { adminRouter } from './routes/admin';
 import { signupsEnabled } from './services/authService';
@@ -50,6 +49,10 @@ app.use(
     },
   }),
 );
+// Identify the user once per request, then cap every request (API, page and
+// static assets) at 1000/min per user — per IP for visitors not logged in.
+app.use(loadUser, allRequestsLimit);
+
 app.use(express.json({ limit: '2mb' }));
 app.use('/api', sameOriginWrites);
 
@@ -61,7 +64,7 @@ app.get('/api/config', (_req, res) => {
 app.use('/api/auth', authRouter); // has its own login rate limits
 
 // ── Everything else requires a logged-in user ────────────────────────────────
-app.use('/api', requireAuth, apiLimit); // apiLimit counts per user
+app.use('/api', requireAuth);
 
 app.use('/api/admin', adminRouter);
 app.use('/api/upload', uploadRouter);
@@ -84,17 +87,12 @@ if (fs.existsSync(clientDist)) {
 
   // Loading the page without a valid session shows the login screen, so it
   // counts against the login-page rate limits. Logged-in users aren't limited.
-  const limitLoginScreen: express.RequestHandler = async (req, res, next) => {
-    try {
-      const token = readSessionToken(req);
-      if (token && (await userForToken(token))) return next();
-      loginPageIpLimit(req, res, (err?: unknown) => {
-        if (err) return next(err);
-        loginPageGlobalLimit(req, res, next);
-      });
-    } catch (err) {
-      next(err);
-    }
+  const limitLoginScreen: express.RequestHandler = (req, res, next) => {
+    if (res.locals.user) return next();
+    loginPageIpLimit(req, res, (err?: unknown) => {
+      if (err) return next(err);
+      loginPageGlobalLimit(req, res, next);
+    });
   };
 
   app.get('*', limitLoginScreen, (_req, res) => {

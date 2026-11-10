@@ -5,6 +5,7 @@ import { app } from './app';
 import { getRepository } from './db';
 import { resumeUnfinishedExtractions } from './services/extractionService';
 import { SESSION_RETENTION_DAYS } from './services/quizService';
+import { LIMITS } from './middleware/rateLimit';
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
 
@@ -14,6 +15,7 @@ async function main() {
   app.listen(PORT, () => {
     const env = process.env.NODE_ENV ?? 'development';
     console.log(`Server listening on port ${PORT} [${env}]`);
+    console.log('[rate-limit] per-minute limits:', LIMITS);
   });
 
   getRepository()
