@@ -10,7 +10,7 @@ import {
   userForToken,
 } from '../services/authService';
 import { clearSessionCookie, readSessionToken, setSessionCookie } from '../middleware/auth';
-import { authGlobalLimit, authIpLimit } from '../middleware/rateLimit';
+import { authGlobalLimit, authIpLimit, authMiscLimit } from '../middleware/rateLimit';
 import { getRepository } from '../db';
 
 const router = Router();
@@ -100,7 +100,7 @@ router.post('/login', authIpLimit, authGlobalLimit, async (req, res, next) => {
 });
 
 // POST /api/auth/logout
-router.post('/logout', async (req, res, next) => {
+router.post('/logout', authMiscLimit, async (req, res, next) => {
   try {
     const token = readSessionToken(req);
     if (token) await endLoginSession(token);
@@ -112,7 +112,7 @@ router.post('/logout', async (req, res, next) => {
 });
 
 // GET /api/auth/me — who is logged in (401 if nobody).
-router.get('/me', async (req, res, next) => {
+router.get('/me', authMiscLimit, async (req, res, next) => {
   try {
     const token = readSessionToken(req);
     const user = token ? await userForToken(token) : null;

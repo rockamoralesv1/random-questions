@@ -49,6 +49,38 @@ export const authIpLimit = makeRateLimit({
   message: 'Too many login attempts. Please wait a minute.',
 });
 
+/**
+ * Loads of the login screen (the app's HTML without a valid session). Same
+ * caps as login attempts — 20/min across everyone plus 5/min per IP — but
+ * separate counters, so opening the page doesn't use up login attempts.
+ */
+const tooManyPage = `<!doctype html><html lang="es"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Demasiadas solicitudes</title>
+<body style="font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;color:#333">
+<h1 style="font-size:1.25rem">Demasiadas solicitudes</h1>
+<p>Hay demasiados intentos de entrar en este momento. Espera un minuto y vuelve a cargar la página.</p>
+<p style="color:#888">Too many requests. Please wait a minute and reload.</p>
+</body></html>`;
+
+function makePageLimit(scope: 'global' | 'ip', max: number) {
+  return rateLimit({
+    windowMs: MINUTE,
+    max,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => (scope === 'global' ? 'login-page' : `login-page:${req.ip}`),
+    handler: (_req, res) => {
+      res.status(429).type('html').send(tooManyPage);
+    },
+  });
+}
+export const loginPageIpLimit = makePageLimit('ip', 5);
+export const loginPageGlobalLimit = makePageLimit('global', 20);
+
+/** /api/auth/me and logout: generous per-IP cap (they hit the database). */
+export const authMiscLimit = makeRateLimit({ windowMs: MINUTE, max: 60, scope: 'ip' });
+
 /** Every /api request — generous; catches runaway clients and scrapers. */
 export const apiLimit = makeRateLimit({ windowMs: MINUTE, max: 300 });
 

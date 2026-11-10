@@ -3,8 +3,9 @@ import helmet from 'helmet';
 import path from 'path';
 import fs from 'fs';
 import { errorHandler } from './middleware/errorHandler';
-import { apiLimit } from './middleware/rateLimit';
-import { requireAuth, sameOriginWrites } from './middleware/auth';
+import { apiLimit, loginPageGlobalLimit, loginPageIpLimit } from './middleware/rateLimit';
+import { readSessionToken, requireAuth, sameOriginWrites } from './middleware/auth';
+import { userForToken } from './services/authService';
 import { authRouter } from './routes/auth';
 import { adminRouter } from './routes/admin';
 import { signupsEnabled } from './services/authService';
@@ -78,8 +79,25 @@ app.use('/api/stt', sttRouter);
 // In development, Vite's dev server handles the client on its own port.
 const clientDist = path.resolve(__dirname, '../../client/dist');
 if (fs.existsSync(clientDist)) {
-  app.use(express.static(clientDist));
-  app.get('*', (_req, res) => {
+  // Static assets (JS/CSS) are served freely; the HTML page is handled below.
+  app.use(express.static(clientDist, { index: false }));
+
+  // Loading the page without a valid session shows the login screen, so it
+  // counts against the login-page rate limits. Logged-in users aren't limited.
+  const limitLoginScreen: express.RequestHandler = async (req, res, next) => {
+    try {
+      const token = readSessionToken(req);
+      if (token && (await userForToken(token))) return next();
+      loginPageIpLimit(req, res, (err?: unknown) => {
+        if (err) return next(err);
+        loginPageGlobalLimit(req, res, next);
+      });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  app.get('*', limitLoginScreen, (_req, res) => {
     res.sendFile(path.join(clientDist, 'index.html'));
   });
 }

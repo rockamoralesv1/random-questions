@@ -134,7 +134,8 @@ login (email + password, scrypt; session = httpOnly SameSite=Lax cookie, 30 days
 stored hashed in `login_sessions`). Sign-up is by admin invitation: an emailed
 magic link (Resend) that expires in 1 hour, works once, and only with the email
 it was sent to. First admin: `heroku run "npm run invite -- <email> --admin"`.
-Login/sign-up: 20/min globally + 5/min per IP; other limits are per user.
+Login/sign-up attempts and login-screen page loads (HTML without a valid
+session): each 20/min globally + 5/min per IP; other limits are per user.
 Data owned by pre-login personal codes moves to the account on first login.
 
 ```
