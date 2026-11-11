@@ -85,7 +85,7 @@ export function UploadZone() {
         const { quiz } = draft;
         setSession(quiz.sessionId, quiz.pairs, quiz.totalCount);
         setCurrentQuestion(quiz.currentIndex, quiz.question, quiz.totalCount);
-        setQuizMode(quiz.quizMode);
+        setQuizMode('flashcard');
         setView('quiz');
         return;
       }
@@ -100,10 +100,10 @@ export function UploadZone() {
         setDraft(null);
         return;
       }
-      const session = await startQuizSession(remainingPairs, local.quizMode);
+      const session = await startQuizSession(remainingPairs, 'flashcard');
       setSession(session.sessionId, remainingPairs, session.totalCount);
       setCurrentQuestion(session.currentIndex, session.question, session.totalCount);
-      setQuizMode(local.quizMode);
+      setQuizMode('flashcard');
       setView('quiz');
     } catch {
       setIsResuming(false);

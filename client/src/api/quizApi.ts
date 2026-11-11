@@ -90,7 +90,7 @@ export async function unshare(hash: string, userId: string): Promise<DocumentMem
 
 export async function startQuizSession(
   pairs: QAPair[],
-  quizMode: QuizMode = 'voice',
+  quizMode: QuizMode = 'flashcard',
 ): Promise<{ sessionId: string; currentIndex: number; question: string; totalCount: number }> {
   const res = await apiFetch(
     '/api/quiz/start',

@@ -44,7 +44,7 @@ interface QuizState {
 export const useQuizStore = create<QuizState>((set) => ({
   view: 'upload',
   language: getLangCookie(),
-  quizMode: 'voice',
+  quizMode: 'flashcard',
   sessionId: null,
   pairs: [],
   currentIndex: 0,

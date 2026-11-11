@@ -6,7 +6,6 @@ import { SharePanel } from './SharePanel';
 import { SourceRef } from './SourceRef';
 import { translations } from '../i18n';
 import type { QAPair } from '../types';
-import type { QuizMode } from '../types';
 
 const PAGE_SIZE = 10;
 
@@ -121,7 +120,7 @@ function SearchDialog({ pairs, selected, onToggle, onClose, lang }: SearchDialog
 
 export function PreviewPairs() {
   const {
-    pairs, setView, setSession, setCurrentQuestion, language, quizMode, setQuizMode,
+    pairs, setView, setSession, setCurrentQuestion, language,
     document: doc, pairsVersion, applyDocumentState,
   } = useQuizStore();
   const tr = translations[language];
@@ -316,7 +315,7 @@ export function PreviewPairs() {
     // The server keeps going; reopening the bank later shows all of them.
     stopPolling();
     try {
-      const session = await startQuizSession(quizPairs, quizMode);
+      const session = await startQuizSession(quizPairs, 'flashcard');
       setSession(session.sessionId, quizPairs, session.totalCount);
       setCurrentQuestion(session.currentIndex, session.question, session.totalCount);
       setView('quiz');
@@ -328,7 +327,7 @@ export function PreviewPairs() {
 
   return (
     <>
-      <div className="flex-1 flex flex-col max-w-2xl w-full mx-auto px-6 pt-6 overflow-hidden">
+      <div className="flex-1 flex flex-col max-w-2xl w-full mx-auto px-6 pt-6 pb-48">
         {/* Title */}
         <div className="mb-4 shrink-0">
           <h2 className="text-2xl font-bold text-gray-800">{tr.reviewTitle}</h2>
@@ -508,7 +507,7 @@ export function PreviewPairs() {
         </div>
 
         {/* Scrollable question list */}
-        <div className="flex-1 overflow-y-auto space-y-2 min-h-0">
+        <div className="space-y-2">
           {pagePairs.map(({ pair, originalIndex }) => {
             const isSelected = selected.has(originalIndex);
             return (
@@ -553,8 +552,9 @@ export function PreviewPairs() {
           })}
         </div>
 
-        {/* Sticky bottom — pagination + actions */}
-        <div className="sticky bottom-0 bg-gray-50 pt-3 pb-4 shrink-0">
+        {/* Fixed to the bottom of the screen — pagination + actions */}
+        <div className="fixed bottom-0 inset-x-0 z-20 bg-gray-50/95 backdrop-blur border-t border-gray-200">
+        <div className="max-w-2xl mx-auto px-6 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex items-center justify-center gap-3 pb-3 text-sm text-gray-500 border-b border-gray-200 mb-3">
@@ -578,24 +578,6 @@ export function PreviewPairs() {
             </div>
           )}
 
-          {/* Mode selector */}
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-xs text-gray-500 font-medium">{tr.quizModeLabel}:</span>
-            {(['voice', 'flashcard'] as QuizMode[]).map((mode) => (
-              <button
-                key={mode}
-                onClick={() => setQuizMode(mode)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  quizMode === mode
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                {mode === 'voice' ? tr.voiceMode : tr.flashcardMode}
-              </button>
-            ))}
-          </div>
-
           {startError && (
             <p className="text-red-500 text-sm mb-2 text-center">{startError}</p>
           )}
@@ -618,6 +600,7 @@ export function PreviewPairs() {
                 : tr.startQuiz(selectedCount)}
             </button>
           </div>
+        </div>
         </div>
       </div>
 
