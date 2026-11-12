@@ -123,10 +123,6 @@ app.use('/api/stt', sttRouter);
 
 // SPA routing for the production build.
 if (hasClient) {
-  // Other files at the root of the build (e.g. favicon): small, unhashed names,
-  // so browsers re-check them on each use.
-  app.use(express.static(clientDist, { index: false, setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') }));
-
   // Loading the page without a valid session shows the login screen, so it
   // counts against the login-page rate limits. Logged-in users aren't limited.
   const limitLoginScreen: express.RequestHandler = (req, res, next) => {
@@ -138,11 +134,18 @@ if (hasClient) {
   };
 
   // The HTML must never be cached: it names the current build's asset files.
-  app.get('*', limitLoginScreen, (_req, res) => {
+  app.get(['/', '/index.html'], limitLoginScreen, (_req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.sendFile(path.join(clientDist, 'index.html'));
   });
 }
+
+// Anything not mapped above (e.g. bots probing for /.env) is a 404. The app
+// lives entirely at "/" (invitations are /?invite=…), so there is no
+// catch-all route returning the page.
+app.use((_req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
 
 app.use(errorHandler);
 
