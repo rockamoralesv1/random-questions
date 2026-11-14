@@ -10,10 +10,24 @@ import type {
   Repository,
   UserRow,
   InvitationRow,
+  UsageReport,
+  MetricsSnapshot,
 } from './repository';
 import { questionKey } from './questionKey';
 
 const clone = <T>(v: T): T => structuredClone(v);
+const HOUR = 3_600_000;
+
+/** YYYY-MM-DD of `ms` in `timeZone`. */
+export function dayIn(timeZone: string, ms = Date.now()): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(ms);
+}
+/** The day `n` days before `day` (YYYY-MM-DD). */
+function minusDays(day: string, n: number): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - n);
+  return d.toISOString().slice(0, 10);
+}
 const isUnfinished = (s: QuizSessionRow) => s.currentIndex < s.pairs.length;
 
 /** In-process repository for local development and tests (no DATABASE_URL). */
@@ -27,6 +41,8 @@ export class MemoryRepository implements Repository {
   private users = new Map<string, UserRow>(); // by email
   private loginSessions = new Map<string, { userId: string; expiresAt: number }>();
   private invitations = new Map<string, { inv: InvitationRow; usedBy: string | null }>(); // by token hash
+  private loginTimes = new Map<string, number>(); // userId → last login
+  private usage = new Map<string, { hour: number; userId: string; quizzes: number; answers: number; passed: number }>();
 
   async init(): Promise<void> {}
 
@@ -233,6 +249,105 @@ export class MemoryRepository implements Repository {
     this.stats.delete(clientId);
   }
 
+  // ── Usage metrics ──────────────────────────────────────────────────────────
+
+  async recordUsage(userId: string, add: { quizzes?: number; answers?: number; passed?: number }): Promise<void> {
+    const hour = Math.floor(Date.now() / HOUR) * HOUR;
+    const key = `${hour}|${userId}`;
+    const row = this.usage.get(key) ?? { hour, userId, quizzes: 0, answers: 0, passed: 0 };
+    row.quizzes += add.quizzes ?? 0;
+    row.answers += add.answers ?? 0;
+    row.passed += add.passed ?? 0;
+    this.usage.set(key, row);
+  }
+
+  async getUsageReport(days: number, timeZone: string): Promise<UsageReport> {
+    const today = dayIn(timeZone);
+    const rows = [...this.usage.values()].map((r) => ({ ...r, day: dayIn(timeZone, r.hour) }));
+    const since = (n: number) => rows.filter((r) => r.day > minusDays(today, n) && r.day <= today);
+    const distinct = (rs: typeof rows) => new Set(rs.map((r) => r.userId)).size;
+    const sum = (rs: typeof rows, k: 'quizzes' | 'answers' | 'passed') => rs.reduce((a, r) => a + r[k], 0);
+    const period = since(days);
+    const users = [...this.users.values()];
+    const userIds = new Set(users.map((u) => u.id));
+
+    const daily = Array.from({ length: days }, (_, i) => {
+      const day = minusDays(today, days - 1 - i);
+      const rs = rows.filter((r) => r.day === day);
+      return { day, activeUsers: distinct(rs), quizzes: sum(rs, 'quizzes'), answers: sum(rs, 'answers'), passed: sum(rs, 'passed') };
+    });
+
+    const failed = new Map<string, { question: string; attempts: number; fails: number; users: number }>();
+    for (const [clientId, m] of this.stats) {
+      if (!userIds.has(clientId)) continue;
+      for (const [key, st] of m) {
+        const f = failed.get(key) ?? { question: st.question, attempts: 0, fails: 0, users: 0 };
+        f.attempts += st.attempts;
+        f.fails += st.fails;
+        f.users += 1;
+        failed.set(key, f);
+      }
+    }
+
+    const perUser = users.map((u) => {
+      const inPeriod = period.filter((r) => r.userId === u.id);
+      const hours = rows.filter((r) => r.userId === u.id).map((r) => r.hour);
+      return {
+        id: u.id,
+        email: u.email,
+        role: u.role,
+        createdAt: u.createdAt,
+        lastLoginAt: this.loginTimes.get(u.id) ?? null,
+        lastActiveAt: hours.length ? Math.max(...hours) : null,
+        quizzes: sum(inPeriod, 'quizzes'),
+        answers: sum(inPeriod, 'answers'),
+        passed: sum(inPeriod, 'passed'),
+        banks: this.links.get(u.id)?.size ?? 0,
+      };
+    });
+    perUser.sort((a, b) => (b.lastActiveAt ?? -1) - (a.lastActiveAt ?? -1) || a.createdAt - b.createdAt);
+
+    const snap = await this.getMetricsSnapshot();
+    return {
+      timeZone,
+      days,
+      totals: {
+        users: users.length,
+        admins: snap.users.admin,
+        activeToday: distinct(since(1)),
+        active7d: distinct(since(7)),
+        active30d: distinct(since(30)),
+        documents: snap.documents,
+        questions: snap.questions,
+        pendingInvitations: snap.pendingInvitations,
+        quizzes: sum(period, 'quizzes'),
+        answers: sum(period, 'answers'),
+        passed: sum(period, 'passed'),
+      },
+      daily,
+      users: perUser,
+      topFailed: [...failed.values()]
+        .filter((f) => f.fails > 0)
+        .sort((a, b) => b.fails - a.fails || b.attempts - a.attempts)
+        .slice(0, 10),
+    };
+  }
+
+  async getMetricsSnapshot(): Promise<MetricsSnapshot> {
+    const now = Date.now();
+    const currentHour = Math.floor(now / HOUR) * HOUR;
+    const rows = [...this.usage.values()];
+    const activeSince = (ms: number) => new Set(rows.filter((r) => r.hour >= currentHour - ms).map((r) => r.userId)).size;
+    const users = [...this.users.values()];
+    return {
+      users: { admin: users.filter((u) => u.role === 'admin').length, user: users.filter((u) => u.role !== 'admin').length },
+      active: { '24h': activeSince(24 * HOUR), '7d': activeSince(7 * 24 * HOUR), '30d': activeSince(30 * 24 * HOUR) },
+      documents: this.docs.size,
+      questions: [...this.docs.values()].reduce((a, cs) => a + cs.reduce((b, c) => b + (c.pairs?.length ?? 0), 0), 0),
+      pendingInvitations: [...this.invitations.values()].filter((i) => !i.inv.usedAt && i.inv.expiresAt > now).length,
+    };
+  }
+
   // ── Users and login sessions ───────────────────────────────────────────────
 
   async createUser(user: UserRow): Promise<boolean> {
@@ -296,6 +411,7 @@ export class MemoryRepository implements Repository {
 
   async createLoginSession(tokenHash: string, userId: string, expiresAt: number): Promise<void> {
     this.loginSessions.set(tokenHash, { userId, expiresAt });
+    this.loginTimes.set(userId, Date.now());
   }
 
   async getUserByLoginSession(tokenHash: string): Promise<UserRow | null> {

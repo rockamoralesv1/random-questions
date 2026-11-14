@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { getRepository, type QuizMode, type QuizSessionRow } from '../db';
 import type { QAPair, QuizAnswer } from '../types';
+import * as usage from './usageService';
 
 // Sessions live in the database, so they survive restarts and can be resumed
 // from any browser with the same personal code. Old ones are purged on boot.
@@ -38,6 +39,7 @@ export async function createSession(
   const repo = getRepository();
   await repo.createQuizSession(session);
   if (clientId) await repo.deleteUnfinishedQuizSessions(clientId, session.id);
+  usage.recordQuizStarted(clientId);
   return session;
 }
 
@@ -82,6 +84,7 @@ export async function recordAnswer(
 
   session.answers.push(answer);
   session.currentIndex += 1;
+  usage.recordAnswer(session.clientId, result.passed);
   if (session.clientId) {
     await repo.recordQuestionStat(session.clientId, {
       question: pair.question,

@@ -66,6 +66,65 @@ export interface QuizSessionRow {
   updatedAt: number;
 }
 
+/** Activity of one day (in the time zone the report was asked for). */
+export interface UsageDayRow {
+  day: string; // YYYY-MM-DD
+  activeUsers: number;
+  quizzes: number;
+  answers: number;
+  passed: number;
+}
+
+export interface UsageUserRow {
+  id: string;
+  email: string;
+  role: UserRole;
+  createdAt: number;
+  lastLoginAt: number | null;
+  /** Start of the last hour with quiz activity (epoch ms). */
+  lastActiveAt: number | null;
+  /** Totals over the report period. */
+  quizzes: number;
+  answers: number;
+  passed: number;
+  banks: number;
+}
+
+export interface UsageReport {
+  timeZone: string;
+  days: number;
+  totals: {
+    users: number;
+    admins: number;
+    /** Distinct users with quiz activity today / last 7 / last 30 days (in `timeZone`). */
+    activeToday: number;
+    active7d: number;
+    active30d: number;
+    documents: number;
+    questions: number;
+    pendingInvitations: number;
+    /** Over the report period. */
+    quizzes: number;
+    answers: number;
+    passed: number;
+  };
+  /** One row per day of the period, oldest first (days without activity included). */
+  daily: UsageDayRow[];
+  users: UsageUserRow[];
+  /** Most failed questions across all users. */
+  topFailed: { question: string; attempts: number; fails: number; users: number }[];
+}
+
+/** Time-zone-free numbers for /metrics. */
+export interface MetricsSnapshot {
+  users: { admin: number; user: number };
+  /** Distinct users with quiz activity in the last 24 h / 7 d / 30 d (rolling). */
+  active: { '24h': number; '7d': number; '30d': number };
+  documents: number;
+  questions: number;
+  pendingInvitations: number;
+}
+
 export interface QuestionStatRow {
   question: string;
   correctAnswer: string;
@@ -168,4 +227,11 @@ export interface Repository {
   importQuestionStats(clientId: string, stats: QuestionStatRow[]): Promise<void>;
   listQuestionStats(clientId: string): Promise<QuestionStatRow[]>;
   clearQuestionStats(clientId: string): Promise<void>;
+
+  // ── Usage metrics ──────────────────────────────────────────────────────────
+  /** Adds to the user's counters for the current hour (stored in UTC). */
+  recordUsage(userId: string, add: { quizzes?: number; answers?: number; passed?: number }): Promise<void>;
+  /** Usage over the last `days` days (today included), grouped by day in `timeZone`. */
+  getUsageReport(days: number, timeZone: string): Promise<UsageReport>;
+  getMetricsSnapshot(): Promise<MetricsSnapshot>;
 }

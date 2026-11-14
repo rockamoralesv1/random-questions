@@ -44,6 +44,11 @@ const running = new Set<string>();
 const queued = new Set<string>();
 
 /** Running or waiting in the queue. */
+/** For /metrics: extractions running and waiting in this process. */
+export function extractionCounts(): { running: number; queued: number } {
+  return { running: running.size, queued: queued.size };
+}
+
 export function isExtractionRunning(hash: string): boolean {
   return running.has(hash) || queued.has(hash);
 }

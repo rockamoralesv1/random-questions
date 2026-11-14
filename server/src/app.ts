@@ -11,6 +11,8 @@ import {
   staticAssetsLimit,
 } from './middleware/rateLimit';
 import { loadUser, requireAuth, sameOriginWrites } from './middleware/auth';
+import { metricsEndpoint, trackRequests } from './middleware/metrics';
+import { makeRateLimit } from './middleware/rateLimit';
 import { authRouter } from './routes/auth';
 import { adminRouter } from './routes/admin';
 import { signupsEnabled } from './services/authService';
@@ -70,6 +72,13 @@ app.use(
     },
   }),
 );
+// Response counts and times for /metrics.
+app.use(trackRequests);
+
+// Prometheus scrape endpoint: only when METRICS_TOKEN is set, and it requires
+// that token. Before the session lookup and the per-user limit.
+app.get('/metrics', makeRateLimit({ windowMs: 60_000, max: 30, scope: 'ip' }), metricsEndpoint);
+
 // In production (Heroku) the server also serves the Vite build; in
 // development Vite's dev server handles the client on its own port.
 const clientDist = path.resolve(__dirname, '../../client/dist');

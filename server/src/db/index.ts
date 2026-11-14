@@ -15,6 +15,10 @@ export type {
   UserRow,
   UserRole,
   InvitationRow,
+  UsageReport,
+  UsageDayRow,
+  UsageUserRow,
+  MetricsSnapshot,
 } from './repository';
 
 let repo: Repository | null = null;

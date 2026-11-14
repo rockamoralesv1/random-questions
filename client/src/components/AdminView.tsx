@@ -9,6 +9,7 @@ import {
 } from '../api/authApi';
 import { useQuizStore } from '../store/quizStore';
 import { formatRelativeTime } from '../lib/storage';
+import { UsagePanel } from './UsagePanel';
 
 /** Admins: invite people by email and see who has an account. */
 export function AdminView() {
@@ -20,6 +21,7 @@ export function AdminView() {
   const [asAdmin, setAsAdmin] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [tab, setTab] = useState<'users' | 'usage'>('users');
 
   const refresh = useCallback(async () => {
     try {
@@ -69,11 +71,30 @@ export function AdminView() {
     <div className="flex-1 p-6">
       <div className="max-w-2xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-gray-800">{es ? 'Usuarios' : 'Users'}</h2>
+          <h2 className="text-2xl font-bold text-gray-800">{es ? 'Administración' : 'Admin'}</h2>
           <button onClick={() => setView('upload')} className="text-sm text-gray-500 hover:text-blue-600">
             ← {es ? 'Volver' : 'Back'}
           </button>
         </div>
+
+        <div className="flex gap-1 border-b border-gray-200">
+          {(['users', 'usage'] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`px-3 py-2 text-sm font-medium -mb-px border-b-2 ${
+                tab === t ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {t === 'users' ? (es ? 'Usuarios' : 'Users') : es ? 'Uso' : 'Usage'}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'usage' ? (
+          <UsagePanel language={language} />
+        ) : (
+        <>
 
         <form onSubmit={invite} className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
           <p className="text-sm font-semibold text-gray-700">{es ? 'Invitar por correo' : 'Invite by email'}</p>
@@ -153,6 +174,8 @@ export function AdminView() {
             ))}
           </div>
         </section>
+        </>
+        )}
       </div>
     </div>
   );

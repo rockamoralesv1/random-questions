@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getRepository } from '../db';
 import { appUrlFrom, inviteByEmail, normalizeEmail } from '../services/authService';
 import { makeRateLimit } from '../middleware/rateLimit';
+import { getUsageReport, validTimeZone } from '../services/usageService';
 
 const router = Router();
 
@@ -22,6 +23,17 @@ router.get('/users', async (_req, res, next) => {
   try {
     const users = await getRepository().listUsers();
     res.json(users.map((u) => ({ id: u.id, email: u.email, role: u.role, createdAt: u.createdAt })));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/admin/usage?days=30&tz=America/El_Salvador — activity totals, per
+// day (in the viewer's time zone) and per user.
+router.get('/usage', async (req, res, next) => {
+  try {
+    const days = Math.min(90, Math.max(7, Number(req.query.days) || 30));
+    res.json(await getUsageReport(days, validTimeZone(req.query.tz)));
   } catch (err) {
     next(err);
   }

@@ -76,3 +76,44 @@ export async function revokeInvitation(id: string): Promise<void> {
   const res = await fetch(`/api/admin/invitations/${id}`, { method: 'DELETE' });
   if (!res.ok && res.status !== 404) throw new Error('Could not revoke invitation');
 }
+
+export interface UsageReport {
+  timeZone: string;
+  days: number;
+  totals: {
+    users: number;
+    admins: number;
+    activeToday: number;
+    active7d: number;
+    active30d: number;
+    documents: number;
+    questions: number;
+    pendingInvitations: number;
+    quizzes: number;
+    answers: number;
+    passed: number;
+  };
+  daily: { day: string; activeUsers: number; quizzes: number; answers: number; passed: number }[];
+  users: {
+    id: string;
+    email: string;
+    role: 'admin' | 'user';
+    createdAt: number;
+    lastLoginAt: number | null;
+    lastActiveAt: number | null;
+    quizzes: number;
+    answers: number;
+    passed: number;
+    banks: number;
+  }[];
+  topFailed: { question: string; attempts: number; fails: number; users: number }[];
+}
+
+/** Days are grouped in this browser's time zone. */
+export async function getUsage(days: number): Promise<UsageReport> {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  return json(
+    await fetch(`/api/admin/usage?days=${days}&tz=${encodeURIComponent(tz)}`),
+    'Could not load usage',
+  );
+}

@@ -141,11 +141,24 @@ session): each 20/min globally + 5/min per IP; every request is capped at
 (`/assets/*`, hashed names) are served before any session lookup, cached
 for a year (`immutable`) and limited per IP; `index.html` is `no-cache`.
 Behind Cloudflare set `TRUST_PROXY_HOPS=2` and `ORIGIN_SECRET`.
+The page is served only at `/` (there is no catch-all route); any other
+unmapped path is a 404.
 Data owned by pre-login personal codes moves to the account on first login.
+
+**Usage metrics**: quiz starts and answers are counted per user per hour
+(UTC) in `usage_hourly`, which survives the 90-day quiz-session purge. No
+server time zone: the admin 👥 → Uso tab sends the browser's zone
+(`GET /api/admin/usage?days=7..90&tz=…`) and days are grouped in it.
+`GET /metrics` serves Prometheus metrics — counters and rolling windows only
+(HTTP requests/latency by route pattern, logins, quizzes, answers, users,
+active users 24h/7d/30d, process), so Grafana etc. group by day in their own
+zone — only when `METRICS_TOKEN` is set, and requires it as a Bearer token or
+Basic auth password.
 
 ```
 POST   /api/auth/login|register|logout, GET /api/auth/me
-GET/POST/DELETE /api/admin/invitations, GET /api/admin/users  (admins)
+GET/POST/DELETE /api/admin/invitations, GET /api/admin/users, GET /api/admin/usage  (admins)
+GET    /metrics                 → Prometheus text (METRICS_TOKEN required)
 POST   /api/upload              → DocumentState (extraction continues in background)
 GET    /api/documents           → this browser's banks (X-Client-Id)
 GET    /api/documents/:hash     → { status, totalChunks, completedChunks, failedChunks, pairs, error }

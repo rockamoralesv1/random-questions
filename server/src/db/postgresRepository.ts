@@ -11,6 +11,8 @@ import type {
   Repository,
   UserRow,
   InvitationRow,
+  UsageReport,
+  MetricsSnapshot,
 } from './repository';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -154,6 +156,18 @@ CREATE TABLE IF NOT EXISTS question_stats (
   last_seen       TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (client_id, question_key)
 );
+
+-- Quiz activity per user per hour (hour start, UTC). Hours, not days, so a
+-- report can group by day in whatever time zone the viewer is in. Kept after
+-- quiz sessions are purged, so usage history isn't lost.
+CREATE TABLE IF NOT EXISTS usage_hourly (
+  hour     TIMESTAMPTZ NOT NULL,
+  user_id  TEXT NOT NULL,
+  quizzes  INT  NOT NULL DEFAULT 0,
+  answers  INT  NOT NULL DEFAULT 0,
+  passed   INT  NOT NULL DEFAULT 0,
+  PRIMARY KEY (hour, user_id)
+);
 `;
 
 export class PostgresRepository implements Repository {
@@ -177,6 +191,20 @@ export class PostgresRepository implements Repository {
 
   async init(): Promise<void> {
     await this.pool.query(SCHEMA);
+    // First run only: estimate past activity from the quiz sessions still
+    // stored (each session counted in the hour it was last used).
+    await this.pool.query(
+      `INSERT INTO usage_hourly (hour, user_id, quizzes, answers, passed)
+       SELECT hour, client_id, count(*), sum(answers), sum(passed)
+         FROM (SELECT date_trunc('hour', q.updated_at) AS hour, q.client_id,
+                      jsonb_array_length(q.answers) AS answers,
+                      (SELECT count(*) FROM jsonb_array_elements(q.answers) a
+                        WHERE (a->>'passed')::boolean) AS passed
+                 FROM quiz_sessions q JOIN users u ON u.id = q.client_id) s
+        WHERE NOT EXISTS (SELECT 1 FROM usage_hourly)
+        GROUP BY hour, client_id
+       ON CONFLICT DO NOTHING`,
+    );
   }
 
   async documentExists(hash: string): Promise<boolean> {
@@ -468,6 +496,146 @@ export class PostgresRepository implements Repository {
 
   async clearQuestionStats(clientId: string): Promise<void> {
     await this.pool.query('DELETE FROM question_stats WHERE client_id = $1', [clientId]);
+  }
+
+  // ── Usage metrics ──────────────────────────────────────────────────────────
+
+  async recordUsage(userId: string, add: { quizzes?: number; answers?: number; passed?: number }): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO usage_hourly (hour, user_id, quizzes, answers, passed)
+       VALUES (date_trunc('hour', now()), $1, $2, $3, $4)
+       ON CONFLICT (hour, user_id) DO UPDATE SET
+         quizzes = usage_hourly.quizzes + EXCLUDED.quizzes,
+         answers = usage_hourly.answers + EXCLUDED.answers,
+         passed  = usage_hourly.passed  + EXCLUDED.passed`,
+      [userId, add.quizzes ?? 0, add.answers ?? 0, add.passed ?? 0],
+    );
+  }
+
+  async getUsageReport(days: number, timeZone: string): Promise<UsageReport> {
+    // Hourly rows of the period, as days in the viewer's time zone.
+    const local = `today AS (SELECT (now() AT TIME ZONE $2)::date AS d),
+         u AS (SELECT (h.hour AT TIME ZONE $2)::date AS day, h.*
+                 FROM usage_hourly h
+                WHERE h.hour > now() - make_interval(days => greatest($1::int, 30) + 2)),
+         p AS (SELECT u.* FROM u, today WHERE u.day > today.d - $1::int AND u.day <= today.d)`;
+    const activeSince = (n: string) =>
+      `(SELECT count(DISTINCT user_id) FROM u, today WHERE u.day > today.d - ${n} AND u.day <= today.d)::int`;
+    const [totals, daily, users, topFailed] = await Promise.all([
+      this.pool.query(
+        `WITH ${local}
+         SELECT
+           (SELECT count(*) FROM users)::int AS users,
+           (SELECT count(*) FROM users WHERE role = 'admin')::int AS admins,
+           ${activeSince('1')} AS active_today,
+           ${activeSince('7')} AS active_7d,
+           ${activeSince('30')} AS active_30d,
+           (SELECT count(*) FROM documents)::int AS documents,
+           (SELECT coalesce(sum(jsonb_array_length(pairs)), 0) FROM document_chunks WHERE pairs IS NOT NULL)::int AS questions,
+           (SELECT count(*) FROM invitations WHERE used_at IS NULL AND expires_at > now())::int AS pending_invitations,
+           (SELECT coalesce(sum(quizzes), 0) FROM p)::int AS quizzes,
+           (SELECT coalesce(sum(answers), 0) FROM p)::int AS answers,
+           (SELECT coalesce(sum(passed), 0) FROM p)::int AS passed`,
+        [days, timeZone],
+      ),
+      this.pool.query(
+        `WITH ${local}
+         SELECT to_char(g.day, 'YYYY-MM-DD') AS day,
+                count(DISTINCT p.user_id)::int AS active_users,
+                coalesce(sum(p.quizzes), 0)::int AS quizzes,
+                coalesce(sum(p.answers), 0)::int AS answers,
+                coalesce(sum(p.passed), 0)::int AS passed
+           FROM today,
+                generate_series(today.d - ($1::int - 1), today.d, interval '1 day') AS g(day)
+           LEFT JOIN p ON p.day = g.day::date
+          GROUP BY g.day ORDER BY g.day`,
+        [days, timeZone],
+      ),
+      this.pool.query(
+        `WITH ${local}
+         SELECT usr.id, usr.email, usr.role, usr.created_at,
+                (SELECT max(created_at) FROM login_sessions l WHERE l.user_id = usr.id) AS last_login_at,
+                (SELECT max(hour) FROM usage_hourly h WHERE h.user_id = usr.id) AS last_active_at,
+                coalesce(t.quizzes, 0)::int AS quizzes, coalesce(t.answers, 0)::int AS answers,
+                coalesce(t.passed, 0)::int AS passed,
+                (SELECT count(*) FROM client_documents c WHERE c.client_id = usr.id)::int AS banks
+           FROM users usr
+           LEFT JOIN (SELECT user_id, sum(quizzes) quizzes, sum(answers) answers, sum(passed) passed
+                        FROM p GROUP BY user_id) t ON t.user_id = usr.id
+          ORDER BY last_active_at DESC NULLS LAST, usr.created_at`,
+        [days, timeZone],
+      ),
+      this.pool.query(
+        `SELECT min(question) AS question, sum(attempts)::int AS attempts, sum(fails)::int AS fails,
+                count(*)::int AS users
+           FROM question_stats s JOIN users u ON u.id = s.client_id
+          GROUP BY question_key HAVING sum(fails) > 0
+          ORDER BY fails DESC, attempts DESC LIMIT 10`,
+      ),
+    ]);
+    const t = totals.rows[0];
+    const ms = (v: Date | null) => (v ? new Date(v).getTime() : null);
+    return {
+      timeZone,
+      days,
+      totals: {
+        users: t.users,
+        admins: t.admins,
+        activeToday: t.active_today,
+        active7d: t.active_7d,
+        active30d: t.active_30d,
+        documents: t.documents,
+        questions: t.questions,
+        pendingInvitations: t.pending_invitations,
+        quizzes: t.quizzes,
+        answers: t.answers,
+        passed: t.passed,
+      },
+      daily: daily.rows.map((r) => ({
+        day: r.day,
+        activeUsers: r.active_users,
+        quizzes: r.quizzes,
+        answers: r.answers,
+        passed: r.passed,
+      })),
+      users: users.rows.map((r) => ({
+        id: r.id,
+        email: r.email,
+        role: r.role,
+        createdAt: ms(r.created_at)!,
+        lastLoginAt: ms(r.last_login_at),
+        lastActiveAt: ms(r.last_active_at),
+        quizzes: r.quizzes,
+        answers: r.answers,
+        passed: r.passed,
+        banks: r.banks,
+      })),
+      topFailed: topFailed.rows,
+    };
+  }
+
+  async getMetricsSnapshot(): Promise<MetricsSnapshot> {
+    // Rolling windows over hour buckets: "24h" means the current hour plus the
+    // previous 24 hour buckets.
+    const r = await this.pool.query(
+      `SELECT
+         (SELECT count(*) FROM users WHERE role = 'admin')::int AS admins,
+         (SELECT count(*) FROM users WHERE role <> 'admin')::int AS users,
+         (SELECT count(DISTINCT user_id) FROM usage_hourly WHERE hour >= date_trunc('hour', now()) - interval '24 hours')::int AS a24h,
+         (SELECT count(DISTINCT user_id) FROM usage_hourly WHERE hour >= date_trunc('hour', now()) - interval '7 days')::int AS a7d,
+         (SELECT count(DISTINCT user_id) FROM usage_hourly WHERE hour >= date_trunc('hour', now()) - interval '30 days')::int AS a30d,
+         (SELECT count(*) FROM documents)::int AS documents,
+         (SELECT coalesce(sum(jsonb_array_length(pairs)), 0) FROM document_chunks WHERE pairs IS NOT NULL)::int AS questions,
+         (SELECT count(*) FROM invitations WHERE used_at IS NULL AND expires_at > now())::int AS pending`,
+    );
+    const x = r.rows[0];
+    return {
+      users: { admin: x.admins, user: x.users },
+      active: { '24h': x.a24h, '7d': x.a7d, '30d': x.a30d },
+      documents: x.documents,
+      questions: x.questions,
+      pendingInvitations: x.pending,
+    };
   }
 
   // ── Users and login sessions ───────────────────────────────────────────────

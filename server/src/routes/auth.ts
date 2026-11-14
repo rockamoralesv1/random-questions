@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { loginAttempts } from '../lib/metrics';
 import {
   authenticate,
   endLoginSession,
@@ -86,6 +87,7 @@ router.post('/login', authIpLimit, authGlobalLimit, async (req, res, next) => {
   try {
     const parsed = CredentialsSchema.safeParse(req.body);
     const user = parsed.success ? await authenticate(parsed.data.email, parsed.data.password) : null;
+    loginAttempts.inc({ result: user ? 'success' : 'failure' });
     if (!parsed.success || !user) {
       // Same message for unknown email and wrong password.
       res.status(401).json({ error: 'Wrong email or password.' });
